@@ -1,0 +1,33 @@
+name: Difatto Github Env Delete
+on:
+  workflow_dispatch:
+    inputs:
+      env_id:
+        type: string
+        description: Stack Id to delete
+        required: true
+env:
+  REPO_ORG: "iofreddy85"
+  STACK_NAME: ${{ inputs.env_id }}
+  PAT: ${{ secrets.DIFATTO_DEVOPS_PAT }}
+jobs:
+  delete:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4.1.6
+      - name: "Delete Cloudformation Environment"
+        working-directory: "./scripts"
+        run: |
+          source ./github_api.sh
+
+          echo "Deleting Github Environment: $STACK_NAME"
+          github_list_deployments $STACK_NAME | jq 'join("\n")' -r > .deployments.tmp
+
+          while read deployment_id; do
+            github_deactivate_deployment $deployment_id
+            github_delete_deployments $deployment_id
+            sleep 0.5
+          done <.deployments.tmp
+
+          github_delete_env $STACK_NAME

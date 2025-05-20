@@ -1,0 +1,94 @@
+name: Difatto Cloudformation DELETE
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: CF Stack to delete
+        type: environment
+env:
+  REPO_ORG: "iofreddy85"
+  DEV_OPS_REPO_ID: ${{ vars.DEV_OPS_REPO_ID }}
+  PAT: ${{ secrets.DIFATTO_DEVOPS_PAT }}
+  # DNS_ZONE: ${{ vars.CLOUDFLARE_DNS_ZONE }}
+  # STG_RDS_INSTANCE: ${{ vars.STG_RDS_INSTANCE }}
+  # STG_RDS_ECS_SG: "FTWNonProdECSRDSSecurityGroup"
+  # PROD_RDS_INSTANCE: ${{ vars.PROD_RDS_INSTANCE }}
+  # PROD_RDS_ECS_SG: "FTWProdECSRDSSecurityGroup"
+  # Repository Secrets
+  # CLOUDFLARE_TOKEN: ${{ secrets.CLOUDFLARE_TOKEN }}
+jobs:
+  delete-stack:
+    environment: ${{ inputs.environment }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4.1.6
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4.1.0
+        with:
+          aws-access-key-id: ${{ secrets.CF_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.CF_SECRET_ACCESS_KEY }}
+          aws-region: ${{ vars.AWS_REGION }}
+      - name: Delete Stack
+        working-directory: "./scripts"
+        run: |
+          source ./helpers.sh
+          # source ./cloudflare_api.sh
+
+          STACK_NAME=${{ inputs.environment }}
+
+          # img_length=$(aws ecr list-images --repository-name ${{ vars.ECR_FTW_IMAGES_REPOSITORY }} | jq  '.imageIds | length')
+          # if [[ $img_length -ne 0 ]]; then
+          #   echo "Images to delete: $img_length..."
+          #   imgs_array=($(aws ecr list-images --repository-name ${{ vars.ECR_FTW_IMAGES_REPOSITORY }} | jq  '.imageIds | map("imageTag="+.imageTag) | join(" ")' -r))
+          #   aws ecr batch-delete-image --repository-name ${{ vars.ECR_FTW_IMAGES_REPOSITORY }} --image-ids "${imgs_array[@]}"
+          # else
+          #   echo "No images to delete..."
+          # fi
+
+          # remove sg from rds
+          # remove_sgs_rds_instance \
+          #   $STACK_NAME \
+          #   $PROD_RDS_INSTANCE \
+          #   $PROD_RDS_ECS_SG
+
+          # sleep 60
+
+          # remove_sgs_rds_instance \
+          #   $STACK_NAME \
+          #   $STG_RDS_INSTANCE \
+          #   $STG_RDS_ECS_SG
+
+
+          # Detach Lambda from VPC to make stack deletion quicker
+          # aws lambda update-function-configuration \
+          #   --function-name ${{ vars.LAMBDA_MIGRATIONS_FUNCTION }} \
+          #   --vpc-config SubnetIds=[],SecurityGroupIds=[]
+
+          # aws lambda update-function-configuration \
+          #   --function-name ${{ vars.LAMBDA_DBDUMPS_FUNCTION }} \
+          #   --file-system-configs=[] \
+          #   --vpc-config SubnetIds=[],SecurityGroupIds=[]
+
+          # LAMBDA_STACK_ID="ftw-lambda-${{ vars.ENV_ID }}"
+          # echo "Deleting AWS Cloudformation Lambda Stack: $LAMBDA_STACK_ID"
+          # aws cloudformation delete-stack \
+          #   --stack-name $LAMBDA_STACK_ID
+
+          # aws cloudformation wait stack-delete-complete \
+          #   --stack-name $LAMBDA_STACK_ID
+
+          # Delete AWS CF Stack
+          echo "Deleting AWS Cloudformation Stack: $STACK_NAME"
+          aws cloudformation delete-stack \
+            --stack-name "$STACK_NAME"
+
+          echo "Deleting Github Environment: $STACK_NAME asyncronously"
+          # Call workflow
+          dispatch_delete_env_wf $STACK_NAME &
+
+          # Delete DNSs created
+          # cloudflare_delete_dns_record "${{ vars.QA_DNS_ADMIN_RECORD_ID }}"
+          # cloudflare_delete_dns_record "${{ vars.STG_DNS_ADMIN_RECORD_ID }}"
+          # cloudflare_delete_dns_record "${{ vars.QA_DNS_FE_RECORD_ID }}"
+          # cloudflare_delete_dns_record "${{ vars.STG_DNS_FE_RECORD_ID }}"

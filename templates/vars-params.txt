@@ -1,0 +1,1 @@
+EnvEcrFTWImagesRepository=ECR_FTW_IMAGES_REPOSITORY

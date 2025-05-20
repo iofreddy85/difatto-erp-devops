@@ -1,0 +1,1 @@
+ECR_FTW_IMAGES_REPOSITORY=ftw-images-repo-#

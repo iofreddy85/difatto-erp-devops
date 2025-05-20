@@ -1,0 +1,289 @@
+name: Difatto Cloudformation CREATE
+on:
+  workflow_dispatch:
+    inputs:
+      qa_domain_name:
+        description: "QA Subdomain"
+        required: false
+        type: string
+      staging_domain_name:
+        description: "Staging Subdomain"
+        required: false
+        type: string
+
+env:
+  # Repository Variables
+  REPO_ORG: "iofreddy85"
+  DEV_OPS_REPO_ID: ${{ vars.DEV_OPS_REPO_ID }}
+  GIT_AWS_USER: ${{ vars.GIT_AWS_USER }}
+  PAT: ${{ secrets.DIFATTO_DEVOPS_PAT }}
+  DEPLOY_WF: "difatto-deploy.yml"
+  DATABASE_MASTER_PASSWORD: ${{secrets.DATABASE_MASTER_PASSWORD}}
+  DB_NAME: ${{secrets.DB_NAME}}
+  # SUBNET_ID_1: ${{ vars.CF_INPUT_SUBNET_ID_1 }}
+  # SUBNET_ID_2: ${{ vars.CF_INPUT_SUBNET_ID_2 }}
+  # VPC_ID: ${{ vars.CF_INPUT_VPC_ID }}
+  # NEW_FRONTEND_REPO_ID: ${{ vars.NEW_FRONTEND_REPO_ID }}
+  # NEW_ADMIN_REPO_ID: ${{ vars.NEW_ADMIN_REPO_ID }}
+  # DNS_ZONE: ${{ vars.CLOUDFLARE_DNS_ZONE }}
+  # STG_RDS_INSTANCE: ${{ vars.STG_RDS_INSTANCE }}
+  # STG_RDS_ECS_SG: "FTWNonProdECSRDSSecurityGroup"
+  # PROD_RDS_INSTANCE: ${{ vars.PROD_RDS_INSTANCE }}
+  # PROD_RDS_ECS_SG: "FTWProdECSRDSSecurityGroup"
+  # Repository Secrets
+  # CLOUDFLARE_TOKEN: ${{ secrets.CLOUDFLARE_TOKEN }}
+  # WF Inputs
+  # QA_INPUT_DNS_NAME: ${{ inputs.qa_domain_name }}
+  # STG_INPUT_DNS_NAME: ${{ inputs.staging_domain_name }}
+jobs:
+  # notify_start:
+  #   environment: ${{ inputs.environment }}
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - name: Slack Notify Start
+  #       uses: FreeTheWork/FTW-New-DevOps/.github/actions/notify-stack@main
+  #       with:
+  #         title: "Creating New Stack! :building_construction:"
+  #         slack_url: ${{ vars.SLACK_WEBHOOK_URL }}
+  #         cloudformation_stack: 'N/A'
+  #         author: ${{ github.actor }}
+  #         workflow_url: "https://github.com/FreeTheWork/FTW-New-DevOps/actions/runs/${{ github.run_id }}"
+  base-stack:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4.1.6
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4.1.0
+        with:
+          aws-access-key-id: ${{ secrets.CF_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.CF_SECRET_ACCESS_KEY }}
+          aws-region: ${{ vars.AWS_REGION }}
+      - name: Deploy Base Stack
+        id: "deploy-stack"
+        working-directory: "./scripts"
+        run: |
+          source ./helpers.sh
+          # source ./cloudflare_api.sh
+
+          # create env name
+          git_sha=${{github.sha}}
+          env_id=${git_sha:0:6}
+
+          STACK_NAME="difatto-stack-$env_id"
+          GIT_AWS_USER="github-agent-$env_id"
+
+          echo "Deploying Stack..."
+
+          # create env
+          echo "Creating Github Environment"
+          github_put_env $STACK_NAME
+
+          # create env vars
+          cat ../templates/env-vars.txt | sed "s/#/$env_id/g" > .env-vars.tmp
+          cp ../templates/vars-params.txt .env-vars-$env_id.tmp
+
+          github_post_env_var $DEV_OPS_REPO_ID $STACK_NAME "ENV_ID" $env_id
+
+          # prepare vars for deploy command
+          while read v; do
+            IFS='=' read -r -a array <<< "$v"
+            var_name=${array[0]}
+            var_value=${array[1]}
+
+            sed "s/$var_name/$var_value/g" .env-vars-$env_id.tmp > .env-vars-$env_id.tmp2
+            mv .env-vars-$env_id.tmp2 .env-vars-$env_id.tmp
+
+            github_post_env_var $DEV_OPS_REPO_ID $STACK_NAME $var_name $var_value
+            sleep 0.25
+          done <.env-vars.tmp
+          rm .env-vars.tmp
+
+          arr=()
+          while read line; do
+              arr+=( "$line" )
+          done < .env-vars-$env_id.tmp
+
+          # create stack
+          aws cloudformation deploy \
+            --template-file ../aws/cloudformation/base-stack.yml \
+            --stack-name "$STACK_NAME" \
+            --capabilities CAPABILITY_NAMED_IAM \
+            --parameter-overrides \
+              EnvironmentName=$env_id \
+              DBMasterUserPassword=$DATABASE_MASTER_PASSWORD \
+              DBName=$DB_NAME
+              # EnvId=$env_id \
+              # ${arr[@]}
+
+          # Create DNS Records
+          # QA_INPUT_DNS_NAME="$QA_INPUT_DNS_NAME"
+          # STG_INPUT_DNS_NAME="$STG_INPUT_DNS_NAME"
+
+          # QA_DNS_NAME_FE=${QA_INPUT_DNS_NAME:="$env_id-qa"}
+          # STG_DNS_NAME_FE=${STG_INPUT_DNS_NAME:="$env_id-stg"}
+
+          # QA_DNS_NAME_ADMIN="$QA_DNS_NAME_FE-admin"
+          # STG_DNS_NAME_ADMIN="$STG_DNS_NAME_FE-admin"
+
+          # echo "QA_DNS_NAME_ADMIN=$QA_DNS_NAME_ADMIN"
+          # echo "STG_DNS_NAME_ADMIN=$STG_DNS_NAME_ADMIN"
+          # echo "QA_DNS_NAME_FE=$QA_DNS_NAME_FE"
+          # echo "STG_DNS_NAME_FE=$STG_DNS_NAME_FE"
+
+          # QA_DNS_ADMIN_RECORD_ID=$(cloudflare_post_dns_record $QA_DNS_NAME_ADMIN "8.8.8.8")
+          # STG_DNS_ADMIN_RECORD_ID=$(cloudflare_post_dns_record $STG_DNS_NAME_ADMIN "8.8.8.8")
+          # QA_DNS_FE_RECORD_ID=$(cloudflare_post_dns_record $QA_DNS_NAME_FE "8.8.8.8")
+          # STG_DNS_FE_RECORD_ID=$(cloudflare_post_dns_record $STG_DNS_NAME_FE "8.8.8.8")
+
+          # echo "QA_DNS_ADMIN_RECORD_ID=$QA_DNS_ADMIN_RECORD_ID"
+          # echo "STG_DNS_ADMIN_RECORD_ID=$STG_DNS_ADMIN_RECORD_ID"
+          # echo "QA_DNS_FE_RECORD_ID=$QA_DNS_FE_RECORD_ID"
+          # echo "STG_DNS_FE_RECORD_ID=$STG_DNS_FE_RECORD_ID"
+
+          # QA_API_URL="https://$QA_DNS_NAME_FE.freethework.com/api/v2"
+          # STG_API_URL="https://$STG_DNS_NAME_FE.freethework.com/api/v2"
+
+          # github_post_env_var $DEV_OPS_REPO_ID $STACK_NAME "QA_API_URL" $QA_API_URL
+          # github_post_env_var $DEV_OPS_REPO_ID $STACK_NAME "STG_API_URL" $STG_API_URL
+
+
+          # QA_FRONTEND_URL="https://$QA_DNS_NAME_FE.freethework.com"
+          # STG_FRONTEND_URL="https://$STG_DNS_NAME_FE.freethework.com"
+
+          # github_post_env_var $DEV_OPS_REPO_ID $STACK_NAME "QA_DNS_NAME_FE" $QA_DNS_NAME_FE
+          # github_post_env_var $DEV_OPS_REPO_ID $STACK_NAME "STG_DNS_NAME_FE" $STG_DNS_NAME_FE
+          # github_post_env_var $DEV_OPS_REPO_ID $STACK_NAME "QA_DNS_FE_RECORD_ID" $QA_DNS_FE_RECORD_ID
+          # github_post_env_var $DEV_OPS_REPO_ID $STACK_NAME "STG_DNS_FE_RECORD_ID" $STG_DNS_FE_RECORD_ID
+
+          # QA_ADMIN_URL="https://$QA_DNS_NAME_ADMIN.freethework.com"
+          # STG_ADMIN_URL="https://$STG_DNS_NAME_ADMIN.freethework.com"
+
+          # github_post_env_var $DEV_OPS_REPO_ID $STACK_NAME "QA_DNS_NAME_ADMIN" $QA_DNS_NAME_ADMIN
+          # github_post_env_var $DEV_OPS_REPO_ID $STACK_NAME "STG_DNS_NAME_ADMIN" $STG_DNS_NAME_ADMIN
+          # github_post_env_var $DEV_OPS_REPO_ID $STACK_NAME "QA_DNS_ADMIN_RECORD_ID" $QA_DNS_ADMIN_RECORD_ID
+          # github_post_env_var $DEV_OPS_REPO_ID $STACK_NAME "STG_DNS_ADMIN_RECORD_ID" $STG_DNS_ADMIN_RECORD_ID
+
+          # Set Step outputs
+          echo "github_user_name=$GIT_AWS_USER" >> $GITHUB_OUTPUT
+          echo "stack_name=$STACK_NAME" >> $GITHUB_OUTPUT
+          # echo "env_id=$env_id" >> $GITHUB_OUTPUT
+          # echo "qa_frontend_url=$QA_FRONTEND_URL" >> $GITHUB_OUTPUT
+          # echo "stg_frontend_url=$STG_FRONTEND_URL" >> $GITHUB_OUTPUT
+          # echo "qa_admin_url=$QA_ADMIN_URL" >> $GITHUB_OUTPUT
+          # echo "stg_admin_url=$STG_ADMIN_URL" >> $GITHUB_OUTPUT
+      - name: Configure Stack
+        working-directory: "./scripts"
+        run: |
+          source ./helpers.sh
+
+          configure_github_user \
+            "${{ steps.deploy-stack.outputs.stack_name }}" \
+            "${{ steps.deploy-stack.outputs.github_user_name }}"
+
+          # add_sgs_rds_instance \
+          #   "${{ steps.deploy-stack.outputs.stack_name }}" \
+          #   $STG_RDS_INSTANCE \
+          #   $STG_RDS_ECS_SG
+
+          # add_sgs_rds_instance \
+          #   "${{ steps.deploy-stack.outputs.stack_name }}" \
+          #   $PROD_RDS_INSTANCE \
+          #   $PROD_RDS_ECS_SG
+
+          # Fire deploy Workflow
+          # REPO="difatto-erp-devops"
+          # echo "Uploading backend image"
+          # wait_wf $REPO $(dispatch_backend_build_for_lambda_wf $REPO $DEPLOY_WF "main" "${{ steps.deploy-stack.outputs.stack_name }}" production)
+          # if [ $? -gt 0 ]; then
+          #   exit 1
+          # fi
+    outputs:
+      stack_name: ${{ steps.deploy-stack.outputs.stack_name }}
+      env_id: ${{ steps.deploy-stack.outputs.env_id }}
+      qa_frontend_url: ${{ steps.deploy-stack.outputs.qa_frontend_url }}
+      stg_frontend_url: ${{ steps.deploy-stack.outputs.stg_frontend_url }}
+      qa_admin_url: ${{ steps.deploy-stack.outputs.qa_admin_url }}
+      stg_admin_url: ${{ steps.deploy-stack.outputs.stg_admin_url }}
+  # lambda-stack:
+  #   needs: base-stack
+  #   environment: ${{ needs.base-stack.outputs.stack_name }}
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - name: Checkout
+  #       uses: actions/checkout@v4
+  #     - name: Setup aws cli
+  #       uses: hsupu/setup-awscli@v1.0.0
+  #     - name: Configure AWS credentials
+  #       uses: aws-actions/configure-aws-credentials@v1
+  #       with:
+  #         aws-access-key-id: ${{ secrets.CF_ACCESS_KEY_ID }}
+  #         aws-secret-access-key: ${{ secrets.CF_SECRET_ACCESS_KEY }}
+  #         aws-region: ${{ vars.AWS_REGION }}
+  #         mask-aws-account-id: false
+  #     - name: Deploy Lambda Stack
+  #       working-directory: "./scripts"
+  #       run: |
+  #         echo "READY FOR LAMBDA STACK DEPLOY"
+  #         STACK_NAME="${{ needs.base-stack.outputs.stack_name }}"
+  #         echo "STACK_NAME=$STACK_NAME"
+  #         ENV_ID="${{ needs.base-stack.outputs.env_id }}"
+  #         echo "ENV_ID=$ENV_ID"
+
+  #         repository_uri=$(aws ecr describe-repositories --repository-name ${{ vars.ECR_FTW_IMAGES_REPOSITORY }} | jq ".repositories[0].repositoryUri" -r)
+  #         echo "repository_uri=$repository_uri"
+  #         image_tag=$(aws ecr describe-images --repository-name ${{ vars.ECR_FTW_IMAGES_REPOSITORY }} | jq '.imageDetails[0].imageTags[0]' -r)
+  #         echo "image_tag=$image_tag"
+  #         image_uri="$repository_uri:$image_tag"
+  #         echo "image_uri=$image_uri"
+
+  #         echo "Deploying Lambda Stack"
+  #         aws cloudformation deploy \
+  #           --template-file ../aws/cloudformation/lambda-migrations.yml \
+  #           --stack-name "ftw-lambda-$ENV_ID" \
+  #           --capabilities CAPABILITY_NAMED_IAM \
+  #           --parameter-overrides \
+  #               FreeTheWorkStack="$STACK_NAME" \
+  #               ImageUri="$image_uri" \
+  #               EnvId="$ENV_ID" \
+  #               EnvLambdaMigrationsFunctionName="${{ vars.LAMBDA_MIGRATIONS_FUNCTION }}" \
+  #               EnvLambdaDbDumpFunctionName="${{ vars.LAMBDA_DBDUMPS_FUNCTION }}"
+  # notify_end:
+  #   needs: [notify_start, base-stack, lambda-stack]
+  #   if: ${{ always() }}
+  #   environment: ${{ inputs.environment }}
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - name: Gather Results
+  #       id: workflow-result
+  #       run: |
+  #         RESULTS=()
+  #         RESULTS+="${{ needs.notify_start.result }}"
+  #         RESULTS+="${{ needs.base-stack.result }}"
+  #         RESULTS+="${{ needs.lambda.result }}"
+
+  #         OUTCOME="Stack Creation Succeeded :large_green_circle:"
+
+  #         QA_FRONTEND_LINK="*<${{ needs.base-stack.outputs.qa_frontend_url }}|${{ needs.base-stack.outputs.qa_frontend_url }}>*"
+  #         QA_ADMIN_LINK="*<${{ needs.base-stack.outputs.qa_admin_url }}|${{ needs.base-stack.outputs.qa_admin_url }}>*"
+  #         QA_LINKS="\n*QA Frontend URL*\n$QA_FRONTEND_LINK\n*QA Admin URL*\n$QA_ADMIN_LINK"
+
+  #         STG_FRONTEND_LINK="*<${{ needs.base-stack.outputs.stg_frontend_url }}|${{ needs.base-stack.outputs.stg_frontend_url }}>*"
+  #         STG_ADMIN_LINK="*<${{ needs.base-stack.outputs.stg_admin_url }}|${{ needs.base-stack.outputs.stg_admin_url }}>*"
+  #         STG_LINKS="\n*Staging Frontend URL*\n$STG_FRONTEND_LINK\n*Staging Admin URL*\n$STG_ADMIN_LINK"
+
+  #         [[ ${RESULTS[@]} =~ "cancelled" ]] && OUTCOME="Stack Creation Cancelled :black_circle:" && LINKS=""
+  #         [[ ${RESULTS[@]} =~ "failure" ]] && OUTCOME="Stack Creation Failed :red_circle:" && LINKS=""
+
+  #         echo "OUTCOME=$OUTCOME"
+  #         echo "outcome=$OUTCOME" >> $GITHUB_OUTPUT
+  #         echo "links=${QA_LINKS}${STG_LINKS}" >> $GITHUB_OUTPUT
+  #     - name: Slack Notify Outcome
+  #       uses: FreeTheWork/FTW-New-DevOps/.github/actions/notify-stack@main
+  #       with:
+  #         title: ${{ steps.workflow-result.outputs.outcome }}
+  #         slack_url: ${{ vars.SLACK_WEBHOOK_URL }}
+  #         cloudformation_stack: ${{ inputs.environment }}
+  #         author: ${{ github.actor }}
+  #         links: ${{ steps.workflow-result.outputs.links }}
+  #         workflow_url: "https://github.com/FreeTheWork/FTW-New-DevOps/actions/runs/${{ github.run_id }}"
