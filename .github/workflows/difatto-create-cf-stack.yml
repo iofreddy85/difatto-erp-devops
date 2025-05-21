@@ -71,7 +71,7 @@ jobs:
           env_id=${git_sha:0:6}
 
           STACK_NAME="difatto-stack-$env_id"
-          GIT_AWS_USER="github-agent-$env_id"
+          GIT_AWS_USER="$GIT_AWS_USER-$env_id"
 
           echo "Deploying Stack..."
 
@@ -106,15 +106,24 @@ jobs:
 
           # create stack
           aws cloudformation deploy \
-            --template-file ../aws/cloudformation/base-stack.yml \
-            --stack-name "$STACK_NAME" \
+            --template-file ../aws/cloudformation/1-vpc.yml \
+            --stack-name "$STACK_NAME-vpc" \
             --capabilities CAPABILITY_NAMED_IAM \
             --parameter-overrides \
+              GithubUser=$GIT_AWS_USER \
+              EnvironmentName=$env_id
+              # EnvId=$env_id \
+              # ${arr[@]}
+
+          aws cloudformation deploy \
+            --template-file ../aws/cloudformation/2-database.yml \
+            --stack-name "$STACK_NAME-database" \
+            --capabilities CAPABILITY_NAMED_IAM \
+            --parameter-overrides \
+              ParentVPCStack="$STACK_NAME-vpc" \
               EnvironmentName=$env_id \
               DBMasterUserPassword=$DATABASE_MASTER_PASSWORD \
               DBName=$DB_NAME
-              # EnvId=$env_id \
-              # ${arr[@]}
 
           # Create DNS Records
           # QA_INPUT_DNS_NAME="$QA_INPUT_DNS_NAME"

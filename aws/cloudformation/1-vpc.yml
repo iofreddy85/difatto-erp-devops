@@ -5,6 +5,10 @@ Parameters:
     Description: An environment name that is prefixed to resource names
     Type: String
 
+  GithubUser:
+    Description: User name for IAM User to manage stack
+    Type: String
+
   VpcCIDR:
     Description: Please enter the IP range (CIDR notation) for this VPC
     Type: String
@@ -30,63 +34,12 @@ Parameters:
     Type: String
     Default: 10.192.21.0/24
 
-  DBName:
-    Type: String
-    NoEcho: true
-    Description: "Secret Database Name"
-
-  DBMasterUsername:
-    Description: "The master user name for the DB instance (ignored when DBSnapshotIdentifier is set, value used from snapshot)."
-    Type: String
-    NoEcho: true
-    Default: postgres
-
-  DBMasterUserPassword:
-    Type: String
-    NoEcho: true
-    Description: "Secret Database Password"
-
-  DBMultiAZ:
-    Description: "Specifies if the database instance is deployed to multiple Availability Zones for HA."
-    Type: String
-    Default: false
-    AllowedValues: [true, false]
-
-  DBEngineVersion:
-    Description: "PostgreSQL version."
-    Type: String
-    Default: "17.2"
-
-  DBInstanceClass:
-    Description: "The instance type of database server."
-    Type: String
-    Default: "db.t3.micro"
-
-  DBAllocatedStorage:
-    Description: "The allocated storage size, specified in GB (ignored when DBSnapshotIdentifier is set, value used from snapshot)."
-    Type: Number
-    Default: 5
-    MinValue: 5
-    MaxValue: 16384
-
-  DBBackupRetentionPeriod:
-    Description: "The number of days to keep snapshots of the database."
-    Type: Number
-    MinValue: 0
-    MaxValue: 35
-    Default: 30
-
-  PreferredBackupWindow:
-    Description: "The daily time range in UTC during which you want to create automated backups."
-    Type: String
-    Default: "09:54-10:24"
-
-  PreferredMaintenanceWindow:
-    Description: The weekly time range (in UTC) during which system maintenance can occur.
-    Type: String
-    Default: "tue:07:00-tue:07:30"
-
 Resources:
+  StackUser:
+    Type: "AWS::IAM::User"
+    Properties:
+      UserName: !Ref GithubUser
+
   VPC:
     Type: AWS::EC2::VPC
     Properties:
@@ -248,67 +201,12 @@ Resources:
       RouteTableId: !Ref PrivateRouteTable2
       SubnetId: !Ref PrivateSubnet2
 
-  NoIngressSecurityGroup:
-    Type: AWS::EC2::SecurityGroup
-    Properties:
-      GroupName: !Sub "difatto-noigsg-${EnvironmentName}"
-      GroupDescription: "Security group with no ingress rule"
-      VpcId: !Ref VPC
-
-  DatabaseSecurityGroup:
-    Type: "AWS::EC2::SecurityGroup"
-    Properties:
-      GroupName: !Sub "difatto-dbsg-${EnvironmentName}"
-      GroupDescription: !Ref "AWS::StackName"
-      VpcId: !Ref VPC
-      SecurityGroupIngress:
-        - Description: Allows traffic in from the internet
-          IpProtocol: tcp
-          FromPort: 5432
-          ToPort: 5432
-          CidrIp: 0.0.0.0/0
-
-  DBSubnetGroup:
-    Type: "AWS::RDS::DBSubnetGroup"
-    Properties:
-      DBSubnetGroupName: !Sub "difatto-subnetgrp-${EnvironmentName}"
-      DBSubnetGroupDescription: !Ref "AWS::StackName"
-      SubnetIds:
-        - !Ref PrivateSubnet1
-        - !Ref PrivateSubnet2
-        - !Ref PublicSubnet1
-
-  DBInstance:
-    DeletionPolicy: Snapshot # default
-    UpdateReplacePolicy: Snapshot
-    Type: "AWS::RDS::DBInstance"
-    Properties:
-      DBInstanceIdentifier: !Sub "difatto-rds-${EnvironmentName}"
-      AllocatedStorage: !Ref DBAllocatedStorage
-      AllowMajorVersionUpgrade: false
-      AutoMinorVersionUpgrade: true
-      BackupRetentionPeriod: !Ref DBBackupRetentionPeriod
-      CopyTagsToSnapshot: true
-      DBInstanceClass: !Ref DBInstanceClass
-      DBName: !Ref DBName
-      DBSubnetGroupName: !Ref DBSubnetGroup
-      EnableIAMDatabaseAuthentication: false
-      Engine: postgres
-      EngineVersion: !Ref DBEngineVersion
-      MasterUsername: !Ref DBMasterUsername
-      MasterUserPassword: !Ref DBMasterUserPassword
-      MultiAZ: !Ref DBMultiAZ
-      PreferredBackupWindow: !Ref PreferredBackupWindow
-      PreferredMaintenanceWindow: !Ref PreferredMaintenanceWindow
-      StorageType: gp2
-      PubliclyAccessible: true
-      VPCSecurityGroups:
-        - !Ref DatabaseSecurityGroup
-
 Outputs:
   VPC:
     Description: A reference to the created VPC
     Value: !Ref VPC
+    Export:
+      Name: !Sub "${AWS::StackName}-VPC"
 
   PublicSubnets:
     Description: A list of the public subnets
@@ -334,10 +232,12 @@ Outputs:
     Description: A reference to the private subnet in the 2nd Availability Zone
     Value: !Ref PrivateSubnet2
 
-  NoIngressSecurityGroup:
-    Description: Security group with no ingress rule
-    Value: !Ref NoIngressSecurityGroup
-
-  DBEndpoint:
-    Description: Database Endpoint
-    Value: !GetAtt DBInstance.Endpoint.Address
+  DBSubnets:
+    Description: "DBSubnets"
+    Value:
+      !Join [
+        ",",
+        [!Ref PrivateSubnet1, !Ref PrivateSubnet2, !Ref PublicSubnet1],
+      ]
+    Export:
+      Name: !Sub "${AWS::StackName}-DBSubnets"

@@ -79,9 +79,19 @@ jobs:
           #   --stack-name $LAMBDA_STACK_ID
 
           # Delete AWS CF Stack
-          echo "Deleting AWS Cloudformation Stack: $STACK_NAME"
+          echo "Deleting AWS Cloudformation Stack: $STACK_NAME-database"
           aws cloudformation delete-stack \
-            --stack-name "$STACK_NAME"
+            --stack-name "$STACK_NAME-database"
+
+          aws cloudformation wait stack-delete-complete \
+            --stack-name "$STACK_NAME-database"
+
+          echo "Deleting AWS Cloudformation Stack: $STACK_NAME-vpc"
+          aws cloudformation delete-stack \
+            --stack-name "$STACK_NAME-vpc"
+
+          aws cloudformation wait stack-delete-complete \
+            --stack-name "$STACK_NAME-vpc"
 
           echo "Deleting Github Environment: $STACK_NAME asyncronously"
           # Call workflow
