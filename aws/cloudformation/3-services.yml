@@ -9,13 +9,13 @@ Parameters:
     Description: "Stack name of parent VPC stack."
     Type: String
 
-  EnvEcrImagesRepository:
-    Type: String
-    Default: "difatto-images-repo"
-
   GithubUser:
     Description: User name for IAM User to manage stack
     Type: String
+
+  EnvEcrImagesRepository:
+    Type: String
+    Default: "difatto-images-repo"
 
   EnvEcsCluster:
     Type: String
@@ -141,7 +141,7 @@ Resources:
           CidrIp: 0.0.0.0/0
       Tags:
         - Key: Name
-          Value: !Sub "difatto-${EnvironmentName}-sg [loadbalancer <- *]"
+          Value: !Sub "[loadbalancer <- *] - difatto-${EnvironmentName}-sg"
 
   ECSPayloadServiceSG:
     Type: "AWS::EC2::SecurityGroup"
@@ -157,7 +157,7 @@ Resources:
           SourceSecurityGroupId: !Ref ECSLBPayloadSG
       Tags:
         - Key: Name
-          Value: !Sub "difatto-${EnvironmentName}-sg [payload-service <- loadbalancer]"
+          Value: !Sub "[payload-service <- loadbalancer] - difatto-${EnvironmentName}-sg"
 
   PayloadECSRDSSG:
     Type: "AWS::EC2::SecurityGroup"
@@ -173,7 +173,7 @@ Resources:
           SourceSecurityGroupId: !Ref ECSPayloadServiceSG
       Tags:
         - Key: Name
-          Value: !Sub "difatto-${EnvironmentName}-sg [rds <- payload-service]"
+          Value: !Sub "[rds <- payload-service] - difatto-${EnvironmentName}-sg"
 
   PayloadLB:
     Type: "AWS::ElasticLoadBalancingV2::LoadBalancer"

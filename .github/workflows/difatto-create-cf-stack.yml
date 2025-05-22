@@ -67,27 +67,40 @@ jobs:
           git_sha=${{github.sha}}
           env_id=${git_sha:0:6}
 
+          # define STACK_NAME
           STACK_NAME="difatto-stack-$env_id"
-          VPC_STACK_NAME="$STACK_NAME-vpc"
-          DATABASE_STACK_NAME="$STACK_NAME-rdspostgres"
-          SERVICES_STACK_NAME="$STACK_NAME-services"
-          DB_INSTANCE_NAME="difatto-rds-$env_id"
-          GIT_AWS_USER="$GIT_AWS_USER-$env_id"
-
-          echo "Deploying Stack..."
 
           # create env
           echo "Creating Github Environment"
           github_put_env $STACK_NAME
+          github_post_env_var $DEV_OPS_REPO_ID $STACK_NAME "ENV_ID" $env_id
 
-          # create env vars
+          # define VPC STACK_NAME
+          VPC_STACK_NAME="$STACK_NAME-vpc"
+          github_post_env_var $DEV_OPS_REPO_ID $STACK_NAME "VPC_STACK_NAME" $VPC_STACK_NAME
+
+          # define DATABASE STACK_NAME
+          DATABASE_STACK_NAME="$STACK_NAME-rds"
+          github_post_env_var $DEV_OPS_REPO_ID $STACK_NAME "DATABASE_STACK_NAME" $DATABASE_STACK_NAME
+
+          # define SERVICES STACK_NAME
+          SERVICES_STACK_NAME="$STACK_NAME-svc"
+          github_post_env_var $DEV_OPS_REPO_ID $STACK_NAME "SERVICES_STACK_NAME" $SERVICES_STACK_NAME
+
+          # define DATABASE INSTANCE NAME
+          DB_INSTANCE_NAME="difatto-rds-$env_id"
+          github_post_env_var $DEV_OPS_REPO_ID $STACK_NAME "DB_INSTANCE_NAME" $DB_INSTANCE_NAME
+
+          # define GIT_AWS_USER
+          GIT_AWS_USER="$GIT_AWS_USER-$env_id"
+
+          echo "Deploying Stack..."
+
+          # do magic for creating dynamic env vars for cloudformation stack execution
           cat ../templates/env-vars.txt | sed "s/#/$env_id/g" > .env-vars.tmp
           cp ../templates/vars-params.txt .env-vars-$env_id.tmp
 
-          github_post_env_var $DEV_OPS_REPO_ID $STACK_NAME "ENV_ID" $env_id
-          github_post_env_var $DEV_OPS_REPO_ID $STACK_NAME "DB_INSTANCE_NAME" $DB_INSTANCE_NAME
-
-          # prepare vars for deploy command
+          # prepare dynamic vars for deploy command
           while read v; do
             IFS='=' read -r -a array <<< "$v"
             var_name=${array[0]}
@@ -106,7 +119,7 @@ jobs:
               arr+=( "$line" )
           done < .env-vars-$env_id.tmp
 
-          # create stack
+          # create stacks
           aws cloudformation deploy \
             --template-file ../aws/cloudformation/1-vpc.yml \
             --stack-name "$VPC_STACK_NAME" \

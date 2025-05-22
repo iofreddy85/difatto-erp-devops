@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: 2010-09-09
-Description: "CloudFormation template to create base ECS Fargate stack"
+Description: "CloudFormation template to create base RDS Postgres stack"
 Parameters:
   ParentVPCStack:
     Description: "Stack name of parent VPC stack."
@@ -84,7 +84,7 @@ Resources:
           CidrIp: 0.0.0.0/0
       Tags:
         - Key: Name
-          Value: !Sub "difatto-${EnvironmentName}-sg [rds <- *]"
+          Value: !Sub "[rds <- *] - difatto-${EnvironmentName}-sg"
 
   DBSubnetGroup:
     Type: "AWS::RDS::DBSubnetGroup"

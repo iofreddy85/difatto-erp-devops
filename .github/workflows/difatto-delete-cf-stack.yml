@@ -12,6 +12,9 @@ env:
 
   ECR_IMAGES_REPOSITORY: ${{ vars.ECR_IMAGES_REPOSITORY }}
   DB_INSTANCE_NAME: ${{ vars.DB_INSTANCE_NAME }}
+  VPC_STACK_NAME: ${{ vars.VPC_STACK_NAME }}
+  DATABASE_STACK_NAME: ${{ vars.DATABASE_STACK_NAME }}
+  SERVICES_STACK_NAME: ${{ vars.SERVICES_STACK_NAME }}
   PAYLOAD_RDS2ECS_SG: "ECSRDSSecurityGroup"
 
   # DNS_ZONE: ${{ vars.CLOUDFLARE_DNS_ZONE }}
@@ -53,52 +56,42 @@ jobs:
 
           # remove sg from rds
           remove_sgs_rds_instance \
-            $STACK_NAME \
+            $SERVICES_STACK_NAME \
             $DB_INSTANCE_NAME \
             $PAYLOAD_RDS2ECS_SG
 
           sleep 60
-
-          # Detach Lambda from VPC to make stack deletion quicker
-          # aws lambda update-function-configuration \
-          #   --function-name ${{ vars.LAMBDA_MIGRATIONS_FUNCTION }} \
-          #   --vpc-config SubnetIds=[],SecurityGroupIds=[]
 
           # aws lambda update-function-configuration \
           #   --function-name ${{ vars.LAMBDA_DBDUMPS_FUNCTION }} \
           #   --file-system-configs=[] \
           #   --vpc-config SubnetIds=[],SecurityGroupIds=[]
 
-          # LAMBDA_STACK_ID="ftw-lambda-${{ vars.ENV_ID }}"
-          # echo "Deleting AWS Cloudformation Lambda Stack: $LAMBDA_STACK_ID"
-          # aws cloudformation delete-stack \
-          #   --stack-name $LAMBDA_STACK_ID
-
           # aws cloudformation wait stack-delete-complete \
           #   --stack-name $LAMBDA_STACK_ID
 
           # Delete AWS CF Stack
-          echo "Deleting AWS Cloudformation Stack: $STACK_NAME-services"
+          echo "Deleting AWS Cloudformation Stack: $SERVICES_STACK_NAME"
           aws cloudformation delete-stack \
-            --stack-name "$STACK_NAME-services"
+            --stack-name "$SERVICES_STACK_NAME"
 
           aws cloudformation wait stack-delete-complete \
-            --stack-name "$STACK_NAME-services"
+            --stack-name "$SERVICES_STACK_NAME"
 
           # Delete AWS CF Stack
-          echo "Deleting AWS Cloudformation Stack: $STACK_NAME-rdspostgres"
+          echo "Deleting AWS Cloudformation Stack: $DATABASE_STACK_NAME"
           aws cloudformation delete-stack \
-            --stack-name "$STACK_NAME-rdspostgres"
+            --stack-name "$DATABASE_STACK_NAME"
 
           aws cloudformation wait stack-delete-complete \
-            --stack-name "$STACK_NAME-rdspostgres"
+            --stack-name "$DATABASE_STACK_NAME"
 
-          echo "Deleting AWS Cloudformation Stack: $STACK_NAME-vpc"
+          echo "Deleting AWS Cloudformation Stack: $VPC_STACK_NAME"
           aws cloudformation delete-stack \
-            --stack-name "$STACK_NAME-vpc"
+            --stack-name "$VPC_STACK_NAME"
 
           aws cloudformation wait stack-delete-complete \
-            --stack-name "$STACK_NAME-vpc"
+            --stack-name "$VPC_STACK_NAME"
 
           echo "Deleting Github Environment: $STACK_NAME asyncronously"
           # Call workflow

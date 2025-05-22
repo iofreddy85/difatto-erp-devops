@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: 2010-09-09
-Description: "CloudFormation template to create base ECS Fargate stack"
+Description: "CloudFormation template to create base VPC Stack"
 Parameters:
   EnvironmentName:
     Description: An environment name that is postfixed to resource names
