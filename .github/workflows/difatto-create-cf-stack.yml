@@ -1,15 +1,15 @@
 name: Difatto Cloudformation CREATE
 on:
   workflow_dispatch:
-    inputs:
-      qa_domain_name:
-        description: "QA Subdomain"
-        required: false
-        type: string
-      staging_domain_name:
-        description: "Staging Subdomain"
-        required: false
-        type: string
+    # inputs:
+    #   qa_domain_name:
+    #     description: "QA Subdomain"
+    #     required: false
+    #     type: string
+    #   staging_domain_name:
+    #     description: "Staging Subdomain"
+    #     required: false
+    #     type: string
 
 env:
   # Repository Variables
@@ -20,14 +20,11 @@ env:
   DEPLOY_WF: "difatto-deploy.yml"
   DATABASE_MASTER_PASSWORD: ${{secrets.DATABASE_MASTER_PASSWORD}}
   DB_NAME: ${{secrets.DB_NAME}}
-  # SUBNET_ID_1: ${{ vars.CF_INPUT_SUBNET_ID_1 }}
-  # SUBNET_ID_2: ${{ vars.CF_INPUT_SUBNET_ID_2 }}
-  # VPC_ID: ${{ vars.CF_INPUT_VPC_ID }}
+  PAYLOAD_RDS2ECS_SG: "ECSRDSSecurityGroup"
   # NEW_FRONTEND_REPO_ID: ${{ vars.NEW_FRONTEND_REPO_ID }}
   # NEW_ADMIN_REPO_ID: ${{ vars.NEW_ADMIN_REPO_ID }}
   # DNS_ZONE: ${{ vars.CLOUDFLARE_DNS_ZONE }}
   # STG_RDS_INSTANCE: ${{ vars.STG_RDS_INSTANCE }}
-  # STG_RDS_ECS_SG: "FTWNonProdECSRDSSecurityGroup"
   # PROD_RDS_INSTANCE: ${{ vars.PROD_RDS_INSTANCE }}
   # PROD_RDS_ECS_SG: "FTWProdECSRDSSecurityGroup"
   # Repository Secrets
@@ -71,6 +68,10 @@ jobs:
           env_id=${git_sha:0:6}
 
           STACK_NAME="difatto-stack-$env_id"
+          VPC_STACK_NAME="$STACK_NAME-vpc"
+          DATABASE_STACK_NAME="$STACK_NAME-rdspostgres"
+          SERVICES_STACK_NAME="$STACK_NAME-services"
+          DB_INSTANCE_NAME="difatto-rds-$env_id"
           GIT_AWS_USER="$GIT_AWS_USER-$env_id"
 
           echo "Deploying Stack..."
@@ -84,6 +85,7 @@ jobs:
           cp ../templates/vars-params.txt .env-vars-$env_id.tmp
 
           github_post_env_var $DEV_OPS_REPO_ID $STACK_NAME "ENV_ID" $env_id
+          github_post_env_var $DEV_OPS_REPO_ID $STACK_NAME "DB_INSTANCE_NAME" $DB_INSTANCE_NAME
 
           # prepare vars for deploy command
           while read v; do
@@ -107,23 +109,31 @@ jobs:
           # create stack
           aws cloudformation deploy \
             --template-file ../aws/cloudformation/1-vpc.yml \
-            --stack-name "$STACK_NAME-vpc" \
+            --stack-name "$VPC_STACK_NAME" \
             --capabilities CAPABILITY_NAMED_IAM \
             --parameter-overrides \
-              GithubUser=$GIT_AWS_USER \
               EnvironmentName=$env_id
-              # EnvId=$env_id \
-              # ${arr[@]}
 
           aws cloudformation deploy \
             --template-file ../aws/cloudformation/2-database.yml \
-            --stack-name "$STACK_NAME-database" \
+            --stack-name "$DATABASE_STACK_NAME" \
             --capabilities CAPABILITY_NAMED_IAM \
             --parameter-overrides \
-              ParentVPCStack="$STACK_NAME-vpc" \
+              ParentVPCStack="$VPC_STACK_NAME" \
               EnvironmentName=$env_id \
               DBMasterUserPassword=$DATABASE_MASTER_PASSWORD \
-              DBName=$DB_NAME
+              DBName=$DB_NAME \
+              DBInstanceName="$DB_INSTANCE_NAME"
+
+          aws cloudformation deploy \
+            --template-file ../aws/cloudformation/3-services.yml \
+            --stack-name "$SERVICES_STACK_NAME" \
+            --capabilities CAPABILITY_NAMED_IAM \
+            --parameter-overrides \
+              ParentVPCStack="$VPC_STACK_NAME" \
+              EnvironmentName=$env_id \
+              GithubUser=$GIT_AWS_USER \
+              ${arr[@]}
 
           # Create DNS Records
           # QA_INPUT_DNS_NAME="$QA_INPUT_DNS_NAME"
@@ -175,7 +185,8 @@ jobs:
 
           # Set Step outputs
           echo "github_user_name=$GIT_AWS_USER" >> $GITHUB_OUTPUT
-          echo "stack_name=$STACK_NAME" >> $GITHUB_OUTPUT
+          echo "services_stack_name=$SERVICES_STACK_NAME" >> $GITHUB_OUTPUT
+          echo "db_instance=$DB_INSTANCE_NAME" >> $GITHUB_OUTPUT
           # echo "env_id=$env_id" >> $GITHUB_OUTPUT
           # echo "qa_frontend_url=$QA_FRONTEND_URL" >> $GITHUB_OUTPUT
           # echo "stg_frontend_url=$STG_FRONTEND_URL" >> $GITHUB_OUTPUT
@@ -190,15 +201,10 @@ jobs:
             "${{ steps.deploy-stack.outputs.stack_name }}" \
             "${{ steps.deploy-stack.outputs.github_user_name }}"
 
-          # add_sgs_rds_instance \
-          #   "${{ steps.deploy-stack.outputs.stack_name }}" \
-          #   $STG_RDS_INSTANCE \
-          #   $STG_RDS_ECS_SG
-
-          # add_sgs_rds_instance \
-          #   "${{ steps.deploy-stack.outputs.stack_name }}" \
-          #   $PROD_RDS_INSTANCE \
-          #   $PROD_RDS_ECS_SG
+          add_sgs_rds_instance \
+            "${{ steps.deploy-stack.outputs.services_stack_name }}" \
+            "${{ steps.deploy-stack.outputs.db_instance }}" \
+            $PAYLOAD_RDS2ECS_SG
 
           # Fire deploy Workflow
           # REPO="difatto-erp-devops"

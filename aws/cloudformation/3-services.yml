@@ -1,0 +1,310 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: "CloudFormation template to create base ECS Fargate stack"
+Parameters:
+  EnvironmentName:
+    Description: An environment name that is postfixed to resource names
+    Type: String
+
+  ParentVPCStack:
+    Description: "Stack name of parent VPC stack."
+    Type: String
+
+  EnvEcrImagesRepository:
+    Type: String
+    Default: "difatto-images-repo"
+
+  GithubUser:
+    Description: User name for IAM User to manage stack
+    Type: String
+
+  EnvEcsCluster:
+    Type: String
+    Default: "difatto-cluster"
+
+  EnvEcsPayloadService:
+    Type: String
+    Default: "difatto-payload-service"
+
+  EnvEcsPayloadContainer:
+    Type: String
+    Default: "difatto-payload-container"
+
+Resources:
+  StackUser:
+    Type: "AWS::IAM::User"
+    Properties:
+      UserName: !Ref GithubUser
+      Policies:
+        - PolicyName: !Sub "GithubWorkflowToECS-${EnvironmentName}"
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Sid: GetAuthorizationToken
+                Effect: Allow
+                Action:
+                  - "ecr:GetAuthorizationToken"
+                  - "ecs:ListTasks"
+                  - "ecs:DescribeTasks"
+                  - "ecs:DescribeTaskDefinition"
+                  - "ec2:DescribeNetworkInterfaces"
+                Resource: "*"
+              - Sid: AllowEcrAccessToBackendRepository
+                Effect: Allow
+                Action:
+                  - ecr:*
+                Resource:
+                  - !GetAtt ECRImagesRepository.Arn
+              - Sid: RegisterTaskDefinition
+                Effect: Allow
+                Action:
+                  - "ecs:RegisterTaskDefinition"
+                Resource: "*"
+              - Sid: PassRolesInTaskDefinition
+                Effect: Allow
+                Action:
+                  - "iam:PassRole"
+                Resource:
+                  - !GetAtt TaskExecutionRole.Arn
+              - Sid: DeployService
+                Effect: Allow
+                Action:
+                  - "ecs:UpdateService"
+                  - "ecs:DescribeServices"
+                Resource:
+                  - !GetAtt ECSPayloadService.ServiceArn
+              - Effect: Allow
+                Action:
+                  - cloudtrail:LookupEvents
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - iam:CreateServiceLinkedRole
+                Resource: "*"
+
+  ECRImagesRepository:
+    Type: "AWS::ECR::Repository"
+    Properties:
+      RepositoryName: !Ref EnvEcrImagesRepository
+
+  TaskExecutionRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      RoleName: !Sub "difatto-TaskExecutionRole-${EnvironmentName}"
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ecs-tasks.amazonaws.com
+            Action:
+              - "sts:AssumeRole"
+      Policies:
+        - PolicyName: !Sub "difatto-AmazonECSTaskExecutionRolePolicy-${EnvironmentName}"
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Sid: AllowContainerShellAccess
+                Effect: Allow
+                Action:
+                  - "ssmmessages:CreateControlChannel"
+                  - "ssmmessages:CreateDataChannel"
+                  - "ssmmessages:OpenControlChannel"
+                  - "ssmmessages:OpenDataChannel"
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - "ecr:GetAuthorizationToken"
+                  - "ecr:BatchCheckLayerAvailability"
+                  - "ecr:GetDownloadUrlForLayer"
+                  - "ecr:BatchGetImage"
+                  - "logs:CreateLogStream"
+                  - "logs:PutLogEvents"
+                Resource: "*"
+
+  ECSLBPayloadSG:
+    Type: "AWS::EC2::SecurityGroup"
+    Properties:
+      GroupDescription: Handles Public access to Load Balancer from the Internet
+      GroupName: !Sub "difatto-sg-ecs-lb-${EnvironmentName}"
+      VpcId: { "Fn::ImportValue": !Sub "${ParentVPCStack}-VPC" }
+      SecurityGroupIngress:
+        - Description: Allows HTTPS traffic from the internet to the Frontend Load Balancer
+          IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+        - Description: Allows HTTP traffic from the internet to the Frontend Load Balancer
+          IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub "difatto-${EnvironmentName}-sg [loadbalancer <- *]"
+
+  ECSPayloadServiceSG:
+    Type: "AWS::EC2::SecurityGroup"
+    Properties:
+      GroupDescription: Handles access from load balancer to ECS Payload Service Containers
+      GroupName: !Sub "difatto-sg-ecs-payload-${EnvironmentName}"
+      VpcId: { "Fn::ImportValue": !Sub "${ParentVPCStack}-VPC" }
+      SecurityGroupIngress:
+        - Description: Allows traffic in from load balancer through security group
+          IpProtocol: tcp
+          FromPort: 3000
+          ToPort: 3000
+          SourceSecurityGroupId: !Ref ECSLBPayloadSG
+      Tags:
+        - Key: Name
+          Value: !Sub "difatto-${EnvironmentName}-sg [payload-service <- loadbalancer]"
+
+  PayloadECSRDSSG:
+    Type: "AWS::EC2::SecurityGroup"
+    Properties:
+      GroupDescription: Handles traffic into RDS from ECS Payload Service Containers
+      GroupName: !Sub "difatto-sg-payload-ecs-rds-${EnvironmentName}"
+      VpcId: { "Fn::ImportValue": !Sub "${ParentVPCStack}-VPC" }
+      SecurityGroupIngress:
+        - Description: Allows traffic in from ECS Payload Service Container
+          IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          SourceSecurityGroupId: !Ref ECSPayloadServiceSG
+      Tags:
+        - Key: Name
+          Value: !Sub "difatto-${EnvironmentName}-sg [rds <- payload-service]"
+
+  PayloadLB:
+    Type: "AWS::ElasticLoadBalancingV2::LoadBalancer"
+    Properties:
+      Name: !Sub "difatto-ecs-lb-${EnvironmentName}"
+      Type: application
+      SecurityGroups:
+        - !Ref ECSLBPayloadSG
+      Subnets:
+        !Split [
+          ",",
+          { "Fn::ImportValue": !Sub "${ParentVPCStack}-PublicSubnets" },
+        ]
+
+  PayloadLBTargetGroup:
+    Type: "AWS::ElasticLoadBalancingV2::TargetGroup"
+    Properties:
+      VpcId: { "Fn::ImportValue": !Sub "${ParentVPCStack}-VPC" }
+      TargetType: ip
+      Name: !Sub "difatto-lb-tg-${EnvironmentName}"
+      HealthCheckPath: /health
+      HealthCheckPort: 3000
+      HealthCheckIntervalSeconds: 10
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 3
+      UnhealthyThresholdCount: 3
+      Protocol: HTTP
+      Port: 80
+
+  PayloadLBListener:
+    Type: "AWS::ElasticLoadBalancingV2::Listener"
+    Properties:
+      LoadBalancerArn: !GetAtt PayloadLB.LoadBalancerArn
+      Port: 80
+      Protocol: HTTP
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !GetAtt PayloadLBTargetGroup.TargetGroupArn
+
+  ECSPayloadCluster:
+    Type: "AWS::ECS::Cluster"
+    Properties:
+      ClusterName: !Ref EnvEcsCluster
+
+  PayloadTaskDefinition:
+    Type: "AWS::ECS::TaskDefinition"
+    Properties:
+      TaskRoleArn: !GetAtt TaskExecutionRole.Arn
+      ExecutionRoleArn: !GetAtt TaskExecutionRole.Arn
+      Family: !Ref EnvEcsPayloadService
+      Cpu: 512
+      Memory: 1024
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      RuntimePlatform:
+        OperatingSystemFamily: LINUX
+      ContainerDefinitions:
+        - Name: !Ref EnvEcsPayloadContainer
+          Image: !Sub "${ECRImagesRepository.RepositoryUri}:difatto-payload-sha..."
+          Essential: true
+          Environment:
+            - Name: PS1
+              Value: '[\u@difatto-payload \W] $ '
+          PortMappings:
+            - ContainerPort: 3000
+              Protocol: tcp
+              Name: !Sub "${EnvEcsPayloadContainer}-3000-tcp"
+          HealthCheck:
+            Command:
+              - CMD-SHELL
+              - !Sub >-
+                curl -f
+                http://localhost:3000/health
+                || exit 1
+            Interval: 15
+            Retries: 3
+            Timeout: 10
+            StartPeriod: 30
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Sub "difatto/ecs/payload-${EnvironmentName}"
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: ecs
+
+  ECSPayloadService:
+    Type: "AWS::ECS::Service"
+    Properties:
+      Cluster: !Ref ECSPayloadCluster
+      LaunchType: FARGATE
+      PlatformVersion: LATEST
+      EnableExecuteCommand: true
+      DeploymentConfiguration:
+        DeploymentCircuitBreaker:
+          Enable: true
+          Rollback: true
+        MaximumPercent: 200
+        MinimumHealthyPercent: 100
+      DesiredCount: 0
+      TaskDefinition: !Ref PayloadTaskDefinition
+      ServiceName: !Ref EnvEcsPayloadService
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: ENABLED
+          SecurityGroups:
+            - !Ref ECSPayloadServiceSG
+          Subnets:
+            !Split [
+              ",",
+              { "Fn::ImportValue": !Sub "${ParentVPCStack}-PublicSubnets" },
+            ]
+      LoadBalancers:
+        - TargetGroupArn:
+            Ref: PayloadLBTargetGroup
+          ContainerPort: 3000
+          ContainerName: !Ref EnvEcsPayloadContainer
+      HealthCheckGracePeriodSeconds: 30
+    DependsOn:
+      - PayloadLBListener
+
+  PayloadCloudWatchGroup:
+    Type: "AWS::Logs::LogGroup"
+    Properties:
+      LogGroupName: !Sub "difatto/ecs/payload-${EnvironmentName}"
+      RetentionInDays: 30
+
+Outputs:
+  LoadBalancerDNSName:
+    Description: The DNSName of the payload load balancer
+    Value: !GetAtt PayloadLB.DNSName
+  ECSRDSSecurityGroup:
+    Description: Security Group for Adding to the RDS Database
+    Value: !GetAtt PayloadECSRDSSG.GroupId

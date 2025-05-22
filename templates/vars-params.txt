@@ -1,1 +1,4 @@
-EnvEcrFTWImagesRepository=ECR_FTW_IMAGES_REPOSITORY
+EnvEcrImagesRepository=ECR_IMAGES_REPOSITORY
+EnvEcsCluster=ECS_CLUSTER
+EnvEcsPayloadService=ECS_PAYLOAD_SERVICE
+EnvEcsPayloadContainer=ECS_PAYLOAD_CONTAINER

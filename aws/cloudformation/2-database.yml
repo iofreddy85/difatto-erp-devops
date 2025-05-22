@@ -6,7 +6,11 @@ Parameters:
     Type: String
 
   EnvironmentName:
-    Description: An environment name that is prefixed to resource names
+    Description: An environment name that is postfixed to resource names
+    Type: String
+
+  DBInstanceName:
+    Description: RDS Instance Name
     Type: String
 
   DBName:
@@ -66,18 +70,11 @@ Parameters:
     Default: "tue:07:00-tue:07:30"
 
 Resources:
-  NoIngressSecurityGroup:
-    Type: AWS::EC2::SecurityGroup
-    Properties:
-      GroupName: !Sub "difatto-noigsg-${EnvironmentName}"
-      GroupDescription: "Security group with no ingress rule"
-      VpcId: { "Fn::ImportValue": !Sub "${ParentVPCStack}-VPC" }
-
-  DatabaseSecurityGroup:
+  DBDefaultSecurityGroup:
     Type: "AWS::EC2::SecurityGroup"
     Properties:
-      GroupName: !Sub "difatto-dbsg-${EnvironmentName}"
-      GroupDescription: !Ref "AWS::StackName"
+      GroupName: !Sub "difatto-db-default-sg-${EnvironmentName}"
+      GroupDescription: Handles Public access to RDS from the Internet
       VpcId: { "Fn::ImportValue": !Sub "${ParentVPCStack}-VPC" }
       SecurityGroupIngress:
         - Description: Allows traffic in from the internet
@@ -85,6 +82,9 @@ Resources:
           FromPort: 5432
           ToPort: 5432
           CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub "difatto-${EnvironmentName}-sg [rds <- *]"
 
   DBSubnetGroup:
     Type: "AWS::RDS::DBSubnetGroup"
@@ -99,7 +99,7 @@ Resources:
     UpdateReplacePolicy: Snapshot
     Type: "AWS::RDS::DBInstance"
     Properties:
-      DBInstanceIdentifier: !Sub "difatto-rds-${EnvironmentName}"
+      DBInstanceIdentifier: !Ref DBInstanceName
       AllocatedStorage: !Ref DBAllocatedStorage
       AllowMajorVersionUpgrade: false
       AutoMinorVersionUpgrade: true
@@ -119,9 +119,14 @@ Resources:
       StorageType: gp2
       PubliclyAccessible: true
       VPCSecurityGroups:
-        - !Ref DatabaseSecurityGroup
+        - !Ref DBDefaultSecurityGroup
 
 Outputs:
+  DBInstanceArn:
+    Description: Database Instance Arn
+    Value: !GetAtt DBInstance.DBInstanceArn
+    Export:
+      Name: !Sub "${AWS::StackName}-DBInstanceArn"
   DBEndpoint:
     Description: Database Endpoint
     Value: !GetAtt DBInstance.Endpoint.Address

@@ -1,1 +1,4 @@
-ECR_FTW_IMAGES_REPOSITORY=ftw-images-repo-#
+ECR_IMAGES_REPOSITORY=difatto-images-repo-#
+ECS_CLUSTER=difatto-cluster-#
+ECS_PAYLOAD_SERVICE=difatto-payload-service-#
+ECS_PAYLOAD_CONTAINER=difatto-payload-container-#
