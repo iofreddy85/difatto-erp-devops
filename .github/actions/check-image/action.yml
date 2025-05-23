@@ -1,0 +1,24 @@
+name: "Image-Check"
+description: "Checks ECR for an image with the same tag as the input"
+inputs:
+  tag:
+    description: No Description
+    required: true
+outputs:
+  image-exist:
+    description: "Whether the image exists or not"
+    value: ${{ steps.check-image.outputs.image_exist }}
+runs:
+  using: "composite"
+  steps:
+    - id: check-image
+      shell: bash
+      run: |
+        IMAGE_VERSION="${{ inputs.tag }}"
+        # Remove repository part before ":" to get the image version
+        IMAGE_VERSION=${IMAGE_VERSION##*:}
+        echo "IMAGE_VERSION=$IMAGE_VERSION"
+        ECR_IMAGES=$(aws ecr list-images --repository-name $ECR_IMAGES_REPOSITORY | jq '.imageIds | map(select(.imageTag=="'$IMAGE_VERSION'")) | length')
+        [[ $ECR_IMAGES -eq 0 ]] && IMAGE_EXIST="false" || IMAGE_EXIST="true"
+        echo "IMAGE_EXIST=$IMAGE_EXIST"
+        echo "image_exist=$IMAGE_EXIST" >> $GITHUB_OUTPUT

@@ -1,0 +1,67 @@
+name: 'Slack Message'
+inputs:
+  cloudformation_stack:
+    required: true
+  title:
+    required: true
+  environment:
+    required: true
+  projects:
+    required: true
+  deploy:
+    required: true
+  author:
+    required: true
+  workflow_url:
+    required: false
+  slack_url:
+    required: true
+runs:
+  using: "composite"
+  steps:
+      - shell: bash
+        run: |
+          curl -X POST ${{ inputs.slack_url }} \
+            -H 'Content-type: application/json' \
+            --data '{
+              "text": "Not displayed",
+              "blocks": [
+                {
+                  "type": "header",
+                  "text": {
+                    "type": "plain_text",
+                    "text": "${{ inputs.title }}",
+                    "emoji": true
+                  }
+                },
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "*Stack:* ${{ inputs.cloudformation_stack }}\n*Environment:* ${{ inputs.environment }}\n*Projects:*\n${{ inputs.projects }}\n*Deploy?:* ${{ inputs.deploy }}\n*Author:* ${{ inputs.author }}"
+                  },
+                  "accessory": {
+                    "type": "image",
+                    "image_url": "https://cdn2.iconfinder.com/data/icons/font-awesome/1792/github-square-512.png",
+                    "alt_text": "computer thumbnail"
+                  }
+                },
+                {
+                  "type": "actions",
+                  "elements": [
+                    {
+                      "type": "button",
+                      "text": {
+                        "type": "plain_text",
+                        "text": "Go to Workflow",
+                        "emoji": true
+                      },
+                      "url": "${{ inputs.workflow_url }}"
+                    }
+                  ]
+                },
+                {
+                  "type": "divider"
+                }
+              ]
+            }'

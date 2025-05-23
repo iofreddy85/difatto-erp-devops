@@ -1,526 +1,106 @@
-# name: FTW Site Deploy
-# run-name: ${{ inputs.correlation_id }}
-# on:
-#   workflow_dispatch:
-#     inputs:
-#       correlation_id:
-#         required: false
-#         type: string
-#       stack:
-#         required: true
-#         # This is the stack (infrastructure) environment.
-#         # Don't confuse it with deploy environment
-#         type: environment
-#       environment:
-#         required: true
-#         type: choice
-#         options:
-#           #- qa (not enough time to finish qa environment)
-#           - staging
-#           - production
-#       # related to qa (but not enought time to finish)
-#       # refresh_db:
-#       #   description: Refresh Database
-#       #   type: boolean
-#       #   default: false
-#       Deploy:
-#         type: boolean
-#         default: true
-#       Backend:
-#         type: boolean
-#       FrontEnd:
-#         type: boolean
-#       Admin:
-#         type: boolean
-# env:
-#   REPO_ORG: "FreeTheWork"
-#   AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-#   AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-#   AWS_DEFAULT_REGION: ${{ vars.AWS_REGION }}
-#   CLOUDFLARE_TOKEN: ${{ secrets.CLOUDFLARE_TOKEN }}
-#   PAT: ${{ secrets.PAT_RENEW_BY_NOV_2024 }}
-# jobs:
-#   notify_start:
-#     environment: ${{ inputs.stack }}
-#     runs-on: ubuntu-latest
-#     steps:
-#       - name: Gather Projects
-#         id: "projects"
-#         run: |
-#           be="${{ inputs.Backend }}" && be=${be/false/  } && be=${be/true/x}
-#           fe="${{ inputs.FrontEnd }}" && fe=${fe/false/  } && fe=${fe/true/x}
-#           adm="${{ inputs.Admin }}" && adm=${adm/false/  } && adm=${adm/true/x}
+name: Difatto Site Deploy
+run-name: ${{ inputs.correlation_id }}
+on:
+  workflow_dispatch:
+    inputs:
+      correlation_id:
+        description: Correlation
+        required: false
+        type: string
+      stack:
+        description: Stack
+        required: true
+        type: environment
+      environment:
+        description: Environment
+        required: true
+        type: choice
+        options:
+          - production
+env:
+  REPO_ORG: "iofreddy85"
+  REPO: "difatto-erp-devops"
+  AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+  AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+  AWS_DEFAULT_REGION: ${{ vars.AWS_REGION }}
+  DATABASE_PASSWORD: ${{ secrets.DATABASE_MASTER_PASSWORD }}
+  DB_NAME: ${{ secrets.DB_NAME }}
+  # CLOUDFLARE_TOKEN: ${{ secrets.CLOUDFLARE_TOKEN }}
+  PAT: ${{ secrets.DIFATTO_DEVOPS_PAT }}
+jobs:
+  build_frontend:
+    environment: ${{ inputs.stack }}
+    env:
+      PROJECT: "difatto-erp-backend"
+      BUILD_BRANCH: main
+      ECR_IMAGES_REPOSITORY: ${{ vars.ECR_IMAGES_REPOSITORY }}
+      API_URL: "http://google.com"
+    timeout-minutes: 15
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4.1.6
+      - name: Run Frontend Build & Push
+        id: build
+        working-directory: "./scripts"
+        run: |
+          source ./github_api.sh
 
-#           echo "be='$be'"
-#           echo "fe='$fe'"
-#           echo "adm='$adm'"
+          echo "STACK=${{ inputs.stack }}"
 
-#           list="- [$be] Backend\n- [$fe] Frontend\n- [$adm] Admin"
-#           echo "list=$list" >> $GITHUB_OUTPUT
-#       - name: Slack Notify Start
-#         uses: FreeTheWork/FTW-New-DevOps/.github/actions/notify-deploy@main
-#         with:
-#           title: "Build Started :coffee:"
-#           slack_url: ${{ vars.SLACK_WEBHOOK_URL }}
-#           cloudformation_stack: ${{ inputs.stack }}
-#           environment: ${{ inputs.environment }}
-#           projects: ${{ steps.projects.outputs.list }}
-#           deploy: ${{ inputs.Deploy }}
-#           author: ${{ github.actor }}
-#           workflow_url: "https://github.com/FreeTheWork/FTW-New-DevOps/actions/runs/${{ github.run_id }}"
-#     outputs:
-#       projects-list: ${{ steps.projects.outputs.list }}
+          DB_ENDPOINT=$(github_get_env_var $REPO_ORG $REPO ${{ inputs.stack }} DB_ENDPOINT)
+          echo "DB_ENDPOINT=$DB_ENDPOINT"
 
-#   build_backend:
-#     environment: ${{ inputs.stack }}
-#     env:
-#       PROJECT: "FTW-New-Backend"
-#       BUILD_BRANCH: ${{ inputs.environment == 'production' && vars.BACKEND_PROD_BRANCH || inputs.environment == 'staging' && vars.BACKEND_STG_BRANCH || inputs.environment == 'qa' && vars.BACKEND_QA_BRANCH }}
-#       ECR_REPOSITORY: ${{ vars.ECR_FTW_IMAGES_REPOSITORY }}
-#       DNS_NAME_ADMIN: ${{ inputs.environment == 'qa' && vars.QA_DNS_NAME_ADMIN || inputs.environment == 'staging' && vars.STG_DNS_NAME_ADMIN }}
-#       DNS_NAME_FE: ${{ inputs.environment == 'qa' && vars.QA_DNS_NAME_FE || inputs.environment == 'staging' && vars.STG_DNS_NAME_FE }}
-#       IS_PROD_BUILD: ${{ inputs.environment == 'production' && 1 || 0 }}
-#     timeout-minutes: 15
-#     runs-on: ubuntu-latest
-#     steps:
-#       - if: ${{ inputs.Backend }}
-#         name: tojson
-#         run: echo '${{ toJSON(github) }}' | jq
-#       - if: ${{ inputs.Backend }}
-#         name: Checkout
-#         uses: actions/checkout@v4
-#       - if: ${{ inputs.Backend }}
-#         name: Run Backend Build & Push
-#         id: build
-#         working-directory: "./scripts"
-#         run: |
-#           echo "DNS_NAME_ADMIN=$DNS_NAME_ADMIN"
-#           echo "DNS_NAME_FE=$DNS_NAME_FE"
-#           REFRESH_DB=0 #${{ inputs.refresh_db && 1 || 0 }}
-#           echo "REFRESH_DB=$REFRESH_DB"
+          DATABASE_URI="postgres://postgres:${{ env.DATABASE_PASSWORD }}@$DB_ENDPOINT:5432/${{ env.DB_NAME }}"
+          echo "DATABASE_URI=$DATABASE_URI"
 
-#           INPUT_PARAMS=$(jq -n \
-#             --arg admin_domain_name "$DNS_NAME_ADMIN" \
-#             --arg frontend_domain_name "$DNS_NAME_FE" \
-#             --arg refresh_db $REFRESH_DB \
-#             '{
-#               "admin_domain_name": $admin_domain_name,
-#               "frontend_domain_name": $frontend_domain_name,
-#               "refresh_db": $refresh_db
-#              }' -c)
-
-#           IMAGE_TAG=$(./ftw_build.sh \
-#             --input-params="$INPUT_PARAMS" \
-#             --environment=${{ inputs.environment }} \
-#             --repository="${{ env.PROJECT }}" \
-#             --branch="${{ env.BUILD_BRANCH }}" \
-#             --workflow="build-upload.yml")
-
-#           DB_DUMP_FUNCTION_EXIST=$(aws lambda list-functions | jq ".Functions | length")
-#           echo "DB_DUMP_FUNCTION_EXIST=$DB_DUMP_FUNCTION_EXIST"
-
-#           # Update db dump lambda function with latest backend docker image
-#           [[ $IS_PROD_BUILD -eq 1 ]] && [[ $DB_DUMP_FUNCTION_EXIST -gt 0 ]] && echo "Updating Db Dump function" && aws lambda update-function-code --function-name ${{ vars.LAMBDA_DBDUMPS_FUNCTION }} --image-uri $IMAGE_TAG
-
-#           echo "BACKEND_IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_OUTPUT
-#     outputs:
-#       BACKEND_IMAGE_TAG: ${{steps.build.outputs.BACKEND_IMAGE_TAG}}
-
-#   build_frontend:
-#     environment: ${{ inputs.stack }}
-#     env:
-#       PROJECT: "FTW-New-Frontend"
-#       BUILD_BRANCH: ${{ inputs.environment == 'production' && vars.FRONTEND_PROD_BRANCH || inputs.environment == 'staging' && vars.FRONTEND_STG_BRANCH || inputs.environment == 'qa' && vars.FRONTEND_QA_BRANCH }}
-#       ECR_REPOSITORY: ${{ vars.ECR_FTW_IMAGES_REPOSITORY }}
-#       API_URL: ${{ inputs.environment == 'qa' && vars.QA_API_URL || inputs.environment == 'staging' && vars.STG_API_URL }}
-#     timeout-minutes: 15
-#     runs-on: ubuntu-latest
-#     steps:
-#       - if: ${{ inputs.FrontEnd }}
-#         name: Checkout
-#         uses: actions/checkout@v4
-#       - if: ${{ inputs.FrontEnd }}
-#         name: Run Frontend Build & Push
-#         id: build
-#         working-directory: "./scripts"
-#         run: |
-#           INPUT_PARAMS=$(jq -n \
-#             --arg public_api_url "$API_URL" \
-#             '{
-#               "public_api_url": $public_api_url
-#              }' -c)
-#           IMAGE_TAG=$(./ftw_build.sh \
-#             --input-params="$INPUT_PARAMS" \
-#             --environment=${{ inputs.environment }} \
-#             --repository="${{ env.PROJECT }}" \
-#             --branch="${{ env.BUILD_BRANCH }}" \
-#             --workflow="build-push.yml")
-#           echo "FRONTEND_IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_OUTPUT
-#     outputs:
-#       FRONTEND_IMAGE_TAG: ${{steps.build.outputs.FRONTEND_IMAGE_TAG}}
-
-#   build_admin:
-#     environment: ${{ inputs.stack }}
-#     env:
-#       PROJECT: "FTW-New-Admin"
-#       BUILD_BRANCH: ${{ inputs.environment == 'production' && vars.ADMIN_PROD_BRANCH || inputs.environment == 'staging' && vars.ADMIN_STG_BRANCH || inputs.environment == 'qa' && vars.ADMIN_QA_BRANCH }}
-#       ECR_REPOSITORY: ${{ vars.ECR_FTW_IMAGES_REPOSITORY }}
-#       API_URL: ${{ inputs.environment == 'qa' && vars.QA_API_URL || inputs.environment == 'staging' && vars.STG_API_URL }}
-#     timeout-minutes: 15
-#     runs-on: ubuntu-latest
-#     steps:
-#       - if: ${{ inputs.Admin }}
-#         name: Checkout
-#         uses: actions/checkout@v4
-#       - if: ${{ inputs.Admin }}
-#         name: Run Admin Build & Push
-#         id: build
-#         working-directory: "./scripts"
-#         run: |
-#           INPUT_PARAMS=$(jq -n \
-#             --arg public_api_url "$API_URL" \
-#             '{
-#               "public_api_url": $public_api_url
-#              }' -c)
-#           IMAGE_TAG=$(./ftw_build.sh \
-#             --input-params="$INPUT_PARAMS" \
-#             --environment=${{ inputs.environment }} \
-#             --repository="${{ env.PROJECT }}" \
-#             --branch="${{ env.BUILD_BRANCH }}" \
-#             --workflow="build-push.yml")
-#           echo "ADMIN_IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_OUTPUT
-#     outputs:
-#       ADMIN_IMAGE_TAG: ${{steps.build.outputs.ADMIN_IMAGE_TAG}}
-
-#   run_migrations:
-#     environment: ${{ inputs.stack }}
-#     if: ${{ inputs.Deploy }}
-#     runs-on: ubuntu-latest
-#     needs: [build_backend, build_frontend, build_admin]
-#     steps:
-#       # update the lambda that runs migrations with the new docker image uri
-#       - if: ${{ inputs.Backend && !inputs.refresh_db }}
-#         name: Update Migrations Lambda function imageUri
-#         run: |
-#           aws lambda update-function-code --function-name ${{ vars.LAMBDA_MIGRATIONS_FUNCTION }} --image-uri ${{ needs.build_backend.outputs.BACKEND_IMAGE_TAG }}
-#           aws lambda wait function-updated-v2 --function-name ${{ vars.LAMBDA_MIGRATIONS_FUNCTION }}
-#       # run migrations in a lambda function
-#       - if: ${{ inputs.Backend && !inputs.refresh_db}}
-#         name: Run Migrations Lambda function
-#         uses: gagoar/invoke-aws-lambda@v3.3.2
-#         with:
-#           AWS_ACCESS_KEY_ID: ${{ env.AWS_ACCESS_KEY_ID }}
-#           AWS_SECRET_ACCESS_KEY: ${{ env.AWS_SECRET_ACCESS_KEY }}
-#           REGION: ${{ env.AWS_DEFAULT_REGION }}
-#           FunctionName: ${{ vars.LAMBDA_MIGRATIONS_FUNCTION }}
-#           Payload: "{}"
-#           LogType: Tail
-#       # run prod workflow for dumping db data
-#       - name: Checkout
-#         if: ${{ inputs.Backend && inputs.refresh_db }}
-#         uses: actions/checkout@v4
-#       - name: Setup aws cli
-#         if: ${{ inputs.Backend && inputs.refresh_db }}
-#         uses: hsupu/setup-awscli@v1.0.0
-#       - name: Configure AWS credentials
-#         if: ${{ inputs.Backend && inputs.refresh_db }}
-#         uses: aws-actions/configure-aws-credentials@v1
-#         with:
-#           aws-access-key-id: ${{ secrets.CF_ACCESS_KEY_ID }}
-#           aws-secret-access-key: ${{ secrets.CF_SECRET_ACCESS_KEY }}
-#           aws-region: ${{ vars.AWS_REGION }}
-#           mask-aws-account-id: false
-#       - name: Dump Prod Data into EFS
-#         if: ${{ inputs.Backend && inputs.refresh_db }}
-#         working-directory: "./scripts"
-#         env:
-#           REPO: FTW-New-Backend
-#           DUMPDB_WF: ftw-dump-prod-data.yml
-#           DUMPDB_WF_BRANCH: docker-ecs-stack
-#           DUMPDB_FUNCTION_NAME: ${{ vars.LAMBDA_DBDUMPS_FUNCTION }}
-#         run: |
-#           source ./helpers.sh
-#           echo "Running Db Dump"
-#           echo "DUMPDB_WF_BRANCH=$DUMPDB_WF_BRANCH"
-#           echo "DUMPDB_FUNCTION_NAME=$DUMPDB_FUNCTION_NAME"
-#           wait_wf $REPO $(dispatch_dump_prod_data_wf $REPO $DUMPDB_WF $DUMPDB_WF_BRANCH $DUMPDB_FUNCTION_NAME)
-#           if [ $? -gt 0 ]; then
-#             exit 1
-#           fi
-
-#   deploy_prod:
-#     environment: ${{ inputs.stack }}
-#     if: ${{ inputs.Deploy && inputs.environment == 'production' }}
-#     runs-on: ubuntu-latest
-#     needs: [build_backend, build_frontend, build_admin, run_migrations]
-#     steps:
-#       - name: Setup aws cli
-#         uses: hsupu/setup-awscli@v1.0.0
-#       - name: Configure AWS credentials
-#         uses: aws-actions/configure-aws-credentials@v1
-#         with:
-#           aws-access-key-id: ${{ env.AWS_ACCESS_KEY_ID }}
-#           aws-secret-access-key: ${{ env.AWS_SECRET_ACCESS_KEY }}
-#           aws-region: ${{ env.AWS_DEFAULT_REGION }}
-#       # backend-api -> pull current task definition for update in the next step
-#       - name: Production Pull Backend API ECS Service task definition
-#         if: ${{ inputs.Backend  }}
-#         run: |
-#           aws ecs describe-task-definition --task-definition ${{ vars.ECS_PROD_BACKEND_SERVICE }} | jq '.taskDefinition' > ./ftw-prod-backend.json
-#       # backend-api -> updates task definition with new docker image version
-#       - name: Production Render Backend API ECS Service task definition
-#         if: ${{ inputs.Backend  }}
-#         id: render-backend-container
-#         uses: aws-actions/amazon-ecs-render-task-definition@v1
-#         with:
-#           task-definition: ./ftw-prod-backend.json
-#           container-name: ${{ vars.ECS_PROD_BACKEND_CONTAINER }}
-#           image: ${{ needs.build_backend.outputs.BACKEND_IMAGE_TAG }}
-#       # backend-api -> signal the service for a new deploy
-#       - name: Production Deploy Backend API ECS Service
-#         if: ${{ inputs.Backend  }}
-#         uses: aws-actions/amazon-ecs-deploy-task-definition@v1
-#         with:
-#           task-definition: ${{ steps.render-backend-container.outputs.task-definition }}
-#           service: ${{ vars.ECS_PROD_BACKEND_SERVICE }}
-#           cluster: ${{ vars.ECS_FTW_CLUSTER }}
-#       - name: Production ECS Backend API Service set tasks to 2
-#         if: ${{ inputs.Backend  }}
-#         run: |
-#           aws ecs update-service \
-#             --cluster ${{ vars.ECS_FTW_CLUSTER }} \
-#             --service ${{ vars.ECS_PROD_BACKEND_SERVICE }} \
-#             --desired-count 2
-
-#       # workers -> pull current task definition for update in the next step
-#       - name: Production Pull Workers ECS Service task definition
-#         if: ${{ inputs.Backend  }}
-#         run: |
-#           aws ecs describe-task-definition --task-definition ${{ vars.ECS_PROD_WORKERS_SERVICE }} | jq '.taskDefinition' > ./ftw-prod-workers.json
-#       # workers -> updates task definition with new docker image version
-#       - name: Production Render Workers ECS Service task definition
-#         if: ${{ inputs.Backend  }}
-#         id: render-workers-container
-#         uses: aws-actions/amazon-ecs-render-task-definition@v1
-#         with:
-#           task-definition: ./ftw-prod-workers.json
-#           container-name: ${{ vars.ECS_PROD_WORKERS_CONTAINER }}
-#           image: ${{ needs.build_backend.outputs.BACKEND_IMAGE_TAG }}
-#       # workers -> signal the service for a new deploy
-#       - name: Production Deploy Workers ECS Service
-#         if: ${{ inputs.Backend  }}
-#         uses: aws-actions/amazon-ecs-deploy-task-definition@v1
-#         with:
-#           task-definition: ${{ steps.render-workers-container.outputs.task-definition }}
-#           service: ${{ vars.ECS_PROD_WORKERS_SERVICE }}
-#           cluster: ${{ vars.ECS_FTW_CLUSTER }}
-#       - name: Production ECS Workers Service set tasks to 1
-#         if: ${{ inputs.Backend  }}
-#         run: |
-#           aws ecs update-service \
-#             --cluster ${{ vars.ECS_FTW_CLUSTER }} \
-#             --service ${{ vars.ECS_PROD_WORKERS_SERVICE }} \
-#             --desired-count 1
-
-#       # frontend -> pull current task definition for update in the next step
-#       - name: Production Pull Frontend API ECS Service task definition
-#         if: ${{ inputs.FrontEnd  }}
-#         run: |
-#           aws ecs describe-task-definition --task-definition ${{ vars.ECS_PROD_FRONTEND_SERVICE }} | jq '.taskDefinition' > ./ftw-prod-frontend.json
-#       # frontend -> updates task definition with new docker image version
-#       - name: Production Render Frontend API ECS Service task definition
-#         if: ${{ inputs.FrontEnd  }}
-#         id: render-frontend-container
-#         uses: aws-actions/amazon-ecs-render-task-definition@v1
-#         with:
-#           task-definition: ./ftw-prod-frontend.json
-#           container-name: ${{ vars.ECS_PROD_FRONTEND_CONTAINER }}
-#           image: ${{ needs.build_frontend.outputs.FRONTEND_IMAGE_TAG }}
-#       # frontend -> signal the service for a new deploy
-#       - name: Production Deploy Frontend API ECS Service
-#         if: ${{ inputs.FrontEnd  }}
-#         uses: aws-actions/amazon-ecs-deploy-task-definition@v1
-#         with:
-#           task-definition: ${{ steps.render-frontend-container.outputs.task-definition }}
-#           service: ${{ vars.ECS_PROD_FRONTEND_SERVICE }}
-#           cluster: ${{ vars.ECS_FTW_CLUSTER }}
-#       - name: Production ECS Frontend API Service set tasks to 1
-#         if: ${{ inputs.FrontEnd  }}
-#         run: |
-#           aws ecs update-service \
-#             --cluster ${{ vars.ECS_FTW_CLUSTER }} \
-#             --service ${{ vars.ECS_PROD_FRONTEND_SERVICE }} \
-#             --desired-count 1
-
-#       # admin -> pull current task definition for update in the next step
-#       - name: Production Pull Admin API ECS Service task definition
-#         if: ${{ inputs.Admin  }}
-#         run: |
-#           aws ecs describe-task-definition --task-definition ${{ vars.ECS_PROD_ADMIN_SERVICE }} | jq '.taskDefinition' > ./ftw-prod-admin.json
-#       # admin -> updates task definition with new docker image version
-#       - name: Production Render Admin API ECS Service task definition
-#         if: ${{ inputs.Admin  }}
-#         id: render-admin-container
-#         uses: aws-actions/amazon-ecs-render-task-definition@v1
-#         with:
-#           task-definition: ./ftw-prod-admin.json
-#           container-name: ${{ vars.ECS_PROD_ADMIN_CONTAINER }}
-#           image: ${{ needs.build_admin.outputs.ADMIN_IMAGE_TAG }}
-#       # admin -> signal the service for a new deploy
-#       - name: Production Deploy Admin API ECS Service
-#         if: ${{ inputs.Admin  }}
-#         uses: aws-actions/amazon-ecs-deploy-task-definition@v1
-#         with:
-#           task-definition: ${{ steps.render-admin-container.outputs.task-definition }}
-#           service: ${{ vars.ECS_PROD_ADMIN_SERVICE }}
-#           cluster: ${{ vars.ECS_FTW_CLUSTER }}
-#       - name: Production ECS Admin API Service set tasks to 1
-#         if: ${{ inputs.Admin  }}
-#         run: |
-#           aws ecs update-service \
-#             --cluster ${{ vars.ECS_FTW_CLUSTER }} \
-#             --service ${{ vars.ECS_PROD_ADMIN_SERVICE }} \
-#             --desired-count 1
-
-#   deploy_non_prod:
-#     environment: ${{ inputs.stack }}
-#     env:
-#       ECS_SERVICE: ${{ inputs.environment == 'qa' && vars.ECS_FTW_QA_SERVICE || inputs.environment == 'staging' && vars.ECS_FTW_STAGING_SERVICE }}
-#       ECS_BACKEND_CONTAINER: ${{ inputs.environment == 'qa' && vars.ECS_QA_BACKEND_CONTAINER || inputs.environment == 'staging' && vars.ECS_STG_BACKEND_CONTAINER }}
-#       ECS_FRONTEND_CONTAINER: ${{ inputs.environment == 'qa' && vars.ECS_QA_FRONTEND_CONTAINER || inputs.environment == 'staging' && vars.ECS_STG_FRONTEND_CONTAINER }}
-#       ECS_ADMIN_CONTAINER: ${{ inputs.environment == 'qa' && vars.ECS_QA_ADMIN_CONTAINER || inputs.environment == 'staging' && vars.ECS_STG_ADMIN_CONTAINER }}
-#     if: ${{ inputs.Deploy && inputs.environment != 'production' }}
-#     runs-on: ubuntu-latest
-#     needs: [build_backend, build_frontend, build_admin, run_migrations]
-#     steps:
-#       - name: Setup aws cli
-#         uses: hsupu/setup-awscli@v1.0.0
-#       - name: Configure AWS credentials
-#         uses: aws-actions/configure-aws-credentials@v1
-#         with:
-#           aws-access-key-id: ${{ env.AWS_ACCESS_KEY_ID }}
-#           aws-secret-access-key: ${{ env.AWS_SECRET_ACCESS_KEY }}
-#           aws-region: ${{ env.AWS_DEFAULT_REGION }}
-
-#       # Pull task definition to update
-#       - name: ${{ inputs.environment }} Pull Full Backend ECS Service task definition
-#         run: |
-#           aws ecs describe-task-definition --task-definition ${{ env.ECS_SERVICE }} | jq '.taskDefinition' > ./ftw-${{ inputs.environment }}.json
-
-#       # Render backend container in task definition
-#       - name: ${{ inputs.environment }} Render Backend ECS Service task definition
-#         if: ${{ needs.build_backend.outputs.BACKEND_IMAGE_TAG != null }}
-#         id: render-backend-container
-#         uses: aws-actions/amazon-ecs-render-task-definition@v1
-#         with:
-#           task-definition: ./ftw-${{ inputs.environment }}.json
-#           container-name: ${{ env.ECS_BACKEND_CONTAINER }}
-#           image: ${{ needs.build_backend.outputs.BACKEND_IMAGE_TAG }}
-#       - if: ${{ needs.build_backend.outputs.BACKEND_IMAGE_TAG != null }}
-#         run: cp -fr ${{steps.render-backend-container.outputs.task-definition}} ./ftw-${{ inputs.environment }}.json
-
-#       # Render frontend container in task definition
-#       - name: ${{ inputs.environment }} Render Frontend ECS Service task definition
-#         if: ${{ needs.build_frontend.outputs.FRONTEND_IMAGE_TAG != null }}
-#         id: render-frontend-container
-#         uses: aws-actions/amazon-ecs-render-task-definition@v1
-#         with:
-#           task-definition: ./ftw-${{ inputs.environment }}.json
-#           container-name: ${{ env.ECS_FRONTEND_CONTAINER }}
-#           image: ${{ needs.build_frontend.outputs.FRONTEND_IMAGE_TAG }}
-#       - if: ${{ needs.build_frontend.outputs.FRONTEND_IMAGE_TAG != null }}
-#         run: cp -fr ${{steps.render-frontend-container.outputs.task-definition}} ./ftw-${{ inputs.environment }}.json
-
-#       # Render admin container in task definition
-#       - name: ${{ inputs.environment }} Render Admin ECS Service task definition
-#         if: ${{ needs.build_admin.outputs.ADMIN_IMAGE_TAG != null }}
-#         id: render-admin-container
-#         uses: aws-actions/amazon-ecs-render-task-definition@v1
-#         with:
-#           task-definition: ./ftw-${{ inputs.environment }}.json
-#           container-name: ${{ env.ECS_ADMIN_CONTAINER }}
-#           image: ${{ needs.build_admin.outputs.ADMIN_IMAGE_TAG }}
-#       - if: ${{ needs.build_admin.outputs.ADMIN_IMAGE_TAG != null }}
-#         run: cp -fr ${{steps.render-admin-container.outputs.task-definition}} ./ftw-${{ inputs.environment }}.json
-
-#       # Finally send new task definition to update Service
-#       - name: ${{ inputs.environment }} Deploy ECS Service
-#         uses: aws-actions/amazon-ecs-deploy-task-definition@v1
-#         with:
-#           task-definition: ./ftw-${{ inputs.environment }}.json
-#           service: ${{ env.ECS_SERVICE }}
-#           cluster: ${{ vars.ECS_FTW_CLUSTER }}
-
-#       - name: ${{ inputs.environment }} ECS Service set tasks to 1
-#         run: |
-#           aws ecs update-service \
-#             --cluster ${{ vars.ECS_FTW_CLUSTER }} \
-#             --service ${{ env.ECS_SERVICE }} \
-#             --desired-count 1 \
-#             --no-force-new-deployment
-
-#   dns_change:
-#     environment: ${{ inputs.stack }}
-#     runs-on: ubuntu-latest
-#     needs: deploy_non_prod
-#     steps:
-#       - name: Checkout
-#         uses: actions/checkout@v4
-#       - name: setup awscli
-#         uses: hsupu/setup-awscli@v1.0.0
-#       - name: Dns Update
-#         working-directory: "./scripts"
-#         env:
-#           DNS_ZONE: ${{ vars.CLOUDFLARE_DNS_ZONE }}
-#           ECS_FTW_CLUSTER: ${{ vars.ECS_FTW_CLUSTER }}
-#           ECS_SERVICE: ${{ inputs.environment == 'qa' && vars.ECS_FTW_QA_SERVICE || inputs.environment == 'staging' && vars.ECS_FTW_STAGING_SERVICE }}
-#           FE_A_RECORD_ID: ${{ inputs.environment == 'qa' && vars.QA_DNS_FE_RECORD_ID || inputs.environment == 'staging' && vars.STG_DNS_FE_RECORD_ID }}
-#           ADMIN_A_RECORD_ID: ${{ inputs.environment == 'qa' && vars.QA_DNS_ADMIN_RECORD_ID || inputs.environment == 'staging' && vars.STG_DNS_ADMIN_RECORD_ID }}
-#           FE_DNS_NAME: ${{ inputs.environment == 'qa' && vars.QA_DNS_NAME_FE || inputs.environment == 'staging' && vars.STG_DNS_NAME_FE }}
-#           ADMIN_DNS_NAME: ${{ inputs.environment == 'qa' && vars.QA_DNS_NAME_ADMIN || inputs.environment == 'staging' && vars.STG_DNS_NAME_ADMIN }}
-#         run: |
-#           ./dns_change.sh
-
-#   notify_end:
-#     needs:
-#       [
-#         notify_start,
-#         build_backend,
-#         build_frontend,
-#         build_admin,
-#         run_migrations,
-#         deploy_non_prod,
-#         deploy_prod,
-#         dns_change,
-#       ]
-#     if: ${{ always() }}
-#     environment: ${{ inputs.stack }}
-#     runs-on: ubuntu-latest
-#     steps:
-#       - name: Gather Results
-#         id: workflow-result
-#         run: |
-#           RESULTS=()
-#           RESULTS+="${{ needs.build_backend.result }}"
-#           RESULTS+="${{ needs.build_frontend.result }}"
-#           RESULTS+="${{ needs.build_admin.result }}"
-#           RESULTS+="${{ needs.run_migrations.result }}"
-#           RESULTS+="${{ needs.deploy_prod.result }}"
-#           RESULTS+="${{ needs.deploy_non_prod.result }}"
-#           RESULTS+="${{ needs.dns_change.result }}"
-
-#           OUTCOME="Build Succeeded :large_green_circle:"
-#           [[ ${RESULTS[@]} =~ "cancelled" ]] && OUTCOME="Build Cancelled :black_circle:"
-#           [[ ${RESULTS[@]} =~ "failure" ]] && OUTCOME="Build Failed :red_circle:"
-#           echo "outcome=$OUTCOME" >> $GITHUB_OUTPUT
-#       - name: Slack Notify Outcome
-#         uses: FreeTheWork/FTW-New-DevOps/.github/actions/notify-deploy@main
-#         with:
-#           title: ${{ steps.workflow-result.outputs.outcome }}
-#           slack_url: ${{ vars.SLACK_WEBHOOK_URL }}
-#           cloudformation_stack: ${{ inputs.stack }}
-#           environment: ${{ inputs.environment }}
-#           projects: ${{ needs.notify_start.outputs.projects-list }}
-#           deploy: ${{ inputs.Deploy }}
-#           author: ${{ github.actor }}
-#           workflow_url: "https://github.com/FreeTheWork/FTW-New-DevOps/actions/runs/${{ github.run_id }}"
+          INPUT_PARAMS=$(jq -n \
+            --arg database_uri "$DATABASE_URI" \
+            '{
+              "database_uri": $database_uri
+             }' -c)
+          IMAGE_TAG=$(./build.sh \
+            --input-params="$INPUT_PARAMS" \
+            --environment=${{ inputs.environment }} \
+            --repository="${{ env.PROJECT }}" \
+            --branch="${{ env.BUILD_BRANCH }}" \
+            --workflow="build-push.yml")
+          echo "FRONTEND_IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_OUTPUT
+    outputs:
+      FRONTEND_IMAGE_TAG: ${{steps.build.outputs.FRONTEND_IMAGE_TAG}}
+  deploy_prod:
+    environment: ${{ inputs.stack }}
+    runs-on: ubuntu-latest
+    needs: [build_frontend]
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4.1.0
+        with:
+          aws-access-key-id: ${{ env.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ env.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_DEFAULT_REGION }}
+      # frontend -> pull current task definition for update in the next step
+      - name: Production Pull Frontend API ECS Service task definition
+        run: |
+          aws ecs describe-task-definition --task-definition ${{ vars.ECS_PAYLOAD_SERVICE }} | jq '.taskDefinition' > ./difatto-prod-payload.json
+      # frontend -> updates task definition with new docker image version
+      - name: Production Render Frontend API ECS Service task definition
+        id: render-frontend-container
+        uses: aws-actions/amazon-ecs-render-task-definition@v1.7.2
+        with:
+          task-definition: ./difatto-prod-payload.json
+          container-name: ${{ vars.ECS_PAYLOAD_CONTAINER }}
+          image: ${{ needs.build_frontend.outputs.FRONTEND_IMAGE_TAG }}
+      # frontend -> signal the service for a new deploy
+      - name: Production Deploy Frontend API ECS Service
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v2.3.2
+        with:
+          task-definition: ${{ steps.render-frontend-container.outputs.task-definition }}
+          service: ${{ vars.ECS_PAYLOAD_SERVICE }}
+          cluster: ${{ vars.ECS_CLUSTER }}
+      - name: Production ECS Frontend API Service set tasks to 1
+        run: |
+          aws ecs update-service \
+            --cluster ${{ vars.ECS_CLUSTER }} \
+            --service ${{ vars.ECS_PAYLOAD_SERVICE }} \
+            --desired-count 1

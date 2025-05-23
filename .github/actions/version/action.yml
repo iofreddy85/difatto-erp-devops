@@ -1,0 +1,28 @@
+name: "Version"
+description: "Generates a JSON file with the git commit details for versioning"
+inputs:
+  sha:
+    description: No description
+    required: true
+  ref-name:
+    description: No description
+    required: true
+  ref-type:
+    description: No description
+    required: true
+  build-env:
+    description: No description
+    required: true
+runs:
+  using: "composite"
+  steps:
+    - shell: bash
+      run: |
+        jq -n \
+          --arg sha ${{ inputs.sha }} \
+          --arg ref_name ${{ inputs.ref-name }} \
+          --arg ref_type ${{ inputs.ref-type }} \
+          --arg build_env ${{ inputs.build-env }} \
+          '{"git-sha":$sha, "git-ref_name":$ref_name, "git-ref_type":$ref_type, "CI/CD_ENV":$build_env}' > version.json
+    - run: cat ./version.json
+      shell: bash

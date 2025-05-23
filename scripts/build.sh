@@ -2,7 +2,7 @@
 
 source ./helpers.sh
 
-REPO_ORG="FreeTheWork"
+REPO_ORG="iofreddy85"
 
 download_artifact() {
   local ARTIFACTS_URL=$1

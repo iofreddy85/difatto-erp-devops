@@ -18,8 +18,8 @@ env:
   GIT_AWS_USER: ${{ vars.GIT_AWS_USER }}
   PAT: ${{ secrets.DIFATTO_DEVOPS_PAT }}
   DEPLOY_WF: "difatto-deploy.yml"
-  DATABASE_MASTER_PASSWORD: ${{secrets.DATABASE_MASTER_PASSWORD}}
-  DB_NAME: ${{secrets.DB_NAME}}
+  DATABASE_MASTER_PASSWORD: ${{ secrets.DATABASE_MASTER_PASSWORD }}
+  DB_NAME: ${{ secrets.DB_NAME }}
   PAYLOAD_RDS2ECS_SG: "ECSRDSSecurityGroup"
   # NEW_FRONTEND_REPO_ID: ${{ vars.NEW_FRONTEND_REPO_ID }}
   # NEW_ADMIN_REPO_ID: ${{ vars.NEW_ADMIN_REPO_ID }}
@@ -148,6 +148,10 @@ jobs:
               GithubUser=$GIT_AWS_USER \
               ${arr[@]}
 
+          # GET DB ENDPOINT
+          DB_ENDPOINT=$(get_cf_stack_output $DATABASE_STACK_NAME "DBEndpoint")
+          github_post_env_var $DEV_OPS_REPO_ID $STACK_NAME "DB_ENDPOINT" $DB_ENDPOINT
+
           # Create DNS Records
           # QA_INPUT_DNS_NAME="$QA_INPUT_DNS_NAME"
           # STG_INPUT_DNS_NAME="$STG_INPUT_DNS_NAME"
@@ -198,6 +202,7 @@ jobs:
 
           # Set Step outputs
           echo "github_user_name=$GIT_AWS_USER" >> $GITHUB_OUTPUT
+          echo "env_name=$STACK_NAME" >> $GITHUB_OUTPUT
           echo "services_stack_name=$SERVICES_STACK_NAME" >> $GITHUB_OUTPUT
           echo "db_instance=$DB_INSTANCE_NAME" >> $GITHUB_OUTPUT
           # echo "env_id=$env_id" >> $GITHUB_OUTPUT
@@ -211,7 +216,7 @@ jobs:
           source ./helpers.sh
 
           configure_github_user \
-            "${{ steps.deploy-stack.outputs.stack_name }}" \
+            "${{ steps.deploy-stack.outputs.env_name }}" \
             "${{ steps.deploy-stack.outputs.github_user_name }}"
 
           add_sgs_rds_instance \
@@ -222,7 +227,7 @@ jobs:
           # Fire deploy Workflow
           # REPO="difatto-erp-devops"
           # echo "Uploading backend image"
-          # wait_wf $REPO $(dispatch_backend_build_for_lambda_wf $REPO $DEPLOY_WF "main" "${{ steps.deploy-stack.outputs.stack_name }}" production)
+          # wait_wf $REPO $(dispatch_backend_build_for_lambda_wf $REPO $DEPLOY_WF "main" "${{ steps.deploy-stack.outputs.env_name }}" production)
           # if [ $? -gt 0 ]; then
           #   exit 1
           # fi
@@ -258,9 +263,9 @@ jobs:
   #         ENV_ID="${{ needs.base-stack.outputs.env_id }}"
   #         echo "ENV_ID=$ENV_ID"
 
-  #         repository_uri=$(aws ecr describe-repositories --repository-name ${{ vars.ECR_FTW_IMAGES_REPOSITORY }} | jq ".repositories[0].repositoryUri" -r)
+  #         repository_uri=$(aws ecr describe-repositories --repository-name ${{ vars.ECR_IMAGES_REPOSITORY }} | jq ".repositories[0].repositoryUri" -r)
   #         echo "repository_uri=$repository_uri"
-  #         image_tag=$(aws ecr describe-images --repository-name ${{ vars.ECR_FTW_IMAGES_REPOSITORY }} | jq '.imageDetails[0].imageTags[0]' -r)
+  #         image_tag=$(aws ecr describe-images --repository-name ${{ vars.ECR_IMAGES_REPOSITORY }} | jq '.imageDetails[0].imageTags[0]' -r)
   #         echo "image_tag=$image_tag"
   #         image_uri="$repository_uri:$image_tag"
   #         echo "image_uri=$image_uri"

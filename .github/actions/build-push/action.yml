@@ -1,0 +1,80 @@
+name: "Image-Check"
+description: "Checks ECR for an image with the same tag as the input"
+inputs:
+  repository_name:
+    required: true
+    description: No Description
+  branch:
+    required: true
+    description: No Description
+  build-args:
+    required: true
+    description: No Description
+  build-target:
+    required: false
+    description: No Description
+  environment:
+    required: true
+    description: No Description
+runs:
+  using: "composite"
+  steps:
+    - name: Checkout
+      uses: actions/checkout@v4.1.6
+      with:
+        repository: iofreddy85/${{ inputs.repository_name }}
+        ref: ${{ inputs.branch }}
+        token: ${{ env.PAT }}
+    - name: Set up QEMU
+      uses: docker/setup-qemu-action@v3
+      with:
+        platforms: amd64
+    - name: Setup Docker Buildx
+      uses: docker/setup-buildx-action@v3
+    # - name: Version
+    #   uses: iofreddy85/difatto-erp-devops/.github/actions/version@main
+    #   with:
+    #     sha: ${{github.sha}}
+    #     ref-name: ${{github.ref_name}}
+    #     ref-type: ${{github.ref_type}}
+    #     build-env: ${{inputs.environment}}
+    # build & push docker image:
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4.1.0
+      with:
+        aws-access-key-id: ${{ env.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ env.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+    - name: Login to Amazon ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v2
+    - name: Extract metadata (tags, labels) for Image from Git
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_IMAGES_REPOSITORY }}
+        tags: |
+          type=sha,format=short,prefix=${{ inputs.repository_name }}-${{ inputs.environment }}-sha-
+    - name: Check Image existance
+      id: check-image
+      uses: iofreddy85/difatto-erp-devops/.github/actions/check-image@main
+      with:
+        tag: "${{ steps.meta.outputs.tags }}"
+    - if: ${{ !fromJSON(steps.check-image.outputs.image-exist) }}
+      name: Build and push Docker image to ECR
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        file: Dockerfile
+        build-args: |
+          ${{ inputs.build-args }}
+        target: ${{ inputs.target }}
+        push: true
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+        platforms: linux/amd64
+        provenance: false
+    - name: Upload artifact with image tag for difatto-erp-devops
+      uses: iofreddy85/difatto-erp-devops/.github/actions/upload-tag@main
+      with:
+        tag: ${{steps.meta.outputs.tags}}

@@ -10,6 +10,19 @@ github_get_env_public_key() {
   echo $RET
 }
 
+github_get_env_var() {
+  local OWNER=$1
+  local REPO=$2
+  local ENV_NAME=$3
+  local VAR_NAME=$4
+  local RET=$(curl -L \
+    -H "Accept: application/vnd.github+json" \
+    -H "Authorization: Bearer $PAT" \
+    -H "X-GitHub-Api-Version: 2022-11-28" \
+    https://api.github.com/repos/$OWNER/$REPO/environments/$ENV_NAME/variables/$VAR_NAME | jq '.value' -c)
+  echo $RET
+}
+
 github_get_secrets_repositories() {
   local SECRET_NAME=$1
   local RET=$(curl -Ls \

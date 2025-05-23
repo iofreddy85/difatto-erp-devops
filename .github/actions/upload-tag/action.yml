@@ -1,0 +1,16 @@
+name: "Upload Tag"
+description: "Uploads image tag to a git artifact"
+inputs:
+  tag:
+    description: No description
+    required: true
+runs:
+  using: "composite"
+  steps:
+    - shell: bash
+      run: |
+        mkdir -p tmp/tags && echo "${{inputs.tag}}" > tmp/tags/tag.txt
+    - uses: actions/upload-artifact@v4
+      with:
+        name: tag
+        path: tmp/tags/tag.txt

@@ -119,7 +119,7 @@ dispatch_build_wf() {
 
   echo "AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID" >&2
   echo "AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY" >&2
-  echo "ECR_REPOSITORY=$ECR_REPOSITORY" >&2
+  echo "ECR_IMAGES_REPOSITORY=$ECR_IMAGES_REPOSITORY" >&2
   echo "WF_EXTRA_INPUT=$WF_EXTRA_INPUT" >&2
 
   local WF_COMMON_INPUT=$(jq -n \
@@ -127,7 +127,7 @@ dispatch_build_wf() {
     --arg correlation_id $uid \
     --arg aws_access_key_id $AWS_ACCESS_KEY_ID \
     --arg aws_secret_access_key $AWS_SECRET_ACCESS_KEY \
-    --arg ecr_repository $ECR_REPOSITORY \
+    --arg ecr_repository $ECR_IMAGES_REPOSITORY \
     '{
       "environment": $environment,
       "correlation_id": $correlation_id,

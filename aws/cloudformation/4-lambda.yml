@@ -1,0 +1,125 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: "FTW CloudFormation template to create Migrations Lambda function. It depends on base stack."
+Parameters:
+  ImageUri:
+    Type: String
+    Description: Container image Uri
+  FreeTheWorkStack:
+    Type: String
+    Default: FreeTheWork
+  EnvId:
+    Type: String
+    Default: ""
+  EnvLambdaMigrationsFunctionName:
+    Type: String
+    Default: "ftw-db-migrations"
+  EnvLambdaDbDumpFunctionName:
+    Type: String
+    Default: "ftw-db-dump"
+Resources:
+  FTWLambdasRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "FTWLambdasRole-${EnvId}"
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Policies:
+        - PolicyName: AWSLambdaBasicExecutionRole
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ec2:CreateNetworkInterface
+                  - ec2:DescribeNetworkInterfaces
+                  - ec2:DeleteNetworkInterface
+                  - ec2:AssignPrivateIpAddresses
+                  - ec2:UnassignPrivateIpAddresses
+                  - ecr:BatchGetImage
+                  - ecr:GetDownloadUrlForLayer
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: "*"
+
+  FTWMigrationsLambdaCloudWatchGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "ftw/ecs/ftw-migrations-lambda-${EnvId}"
+      RetentionInDays: 30
+  FTWMigrationsLambdaInvokeConfig:
+    Type: AWS::Lambda::EventInvokeConfig
+    Properties:
+      FunctionName: !Ref FTWMigrationsLambda
+      MaximumRetryAttempts: 0
+      Qualifier: $LATEST
+  FTWMigrationsLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      Role: !GetAtt FTWLambdasRole.Arn
+      FunctionName: !Ref EnvLambdaMigrationsFunctionName
+      PackageType: Image
+      VpcConfig:
+        SecurityGroupIds:
+          - Fn::ImportValue: !Sub "${FreeTheWorkStack}-LambdaSecurityGroupID"
+        SubnetIds:
+          - Fn::ImportValue: !Sub "${FreeTheWorkStack}-SubnetId1"
+          - Fn::ImportValue: !Sub "${FreeTheWorkStack}-SubnetId2"
+      Code:
+        ImageUri: !Ref ImageUri
+      ImageConfig:
+        Command:
+          - /app/aws/lambda/migrations.handler
+        EntryPoint:
+          - /lambda-entrypoint.sh
+      LoggingConfig:
+        LogGroup: !Sub "ftw/ecs/ftw-migrations-lambda-${EnvId}"
+      Timeout: 30
+
+  FTWDBDumpLambdaCloudWatchGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "ftw/ecs/ftw-db-dump-lambda-${EnvId}"
+      RetentionInDays: 30
+  FTWDBDumpLambdaInvokeConfig:
+    Type: AWS::Lambda::EventInvokeConfig
+    Properties:
+      FunctionName: !Ref FTWDBDumpLambda
+      MaximumRetryAttempts: 0
+      Qualifier: $LATEST
+  FTWDBDumpLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      Role: !GetAtt FTWLambdasRole.Arn
+      FunctionName: !Ref EnvLambdaDbDumpFunctionName
+      PackageType: Image
+      VpcConfig:
+        SecurityGroupIds:
+          - Fn::ImportValue: !Sub "${FreeTheWorkStack}-LambdaSecurityGroupID"
+        SubnetIds:
+          - Fn::ImportValue: !Sub "${FreeTheWorkStack}-SubnetId1"
+          - Fn::ImportValue: !Sub "${FreeTheWorkStack}-SubnetId2"
+      FileSystemConfigs:
+        - Arn:
+            Fn::ImportValue: !Sub "${FreeTheWorkStack}-FTWLambdaAccessPoint"
+          LocalMountPath: !Join
+            - ""
+            - - "/mnt"
+              - Fn::ImportValue: !Sub "${FreeTheWorkStack}-FTWLambdaEFSDumpsPath"
+      Code:
+        ImageUri: !Ref ImageUri
+      ImageConfig:
+        Command:
+          - /app/aws/lambda/dbDump.handler
+        EntryPoint:
+          - /lambda-entrypoint.sh
+      LoggingConfig:
+        LogGroup: !Sub "ftw/ecs/ftw-db-dump-lambda-${EnvId}"
+      Timeout: 30
