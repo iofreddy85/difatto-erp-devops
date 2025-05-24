@@ -19,7 +19,7 @@ github_get_env_var() {
     -H "Accept: application/vnd.github+json" \
     -H "Authorization: Bearer $PAT" \
     -H "X-GitHub-Api-Version: 2022-11-28" \
-    https://api.github.com/repos/$OWNER/$REPO/environments/$ENV_NAME/variables/$VAR_NAME | jq '.value' -c)
+    https://api.github.com/repos/$OWNER/$REPO/environments/$ENV_NAME/variables/$VAR_NAME | jq '.value' -r)
   echo $RET
 }
 

@@ -65,14 +65,27 @@ jobs:
             --repository="${{ env.PROJECT }}" \
             --branch="${{ env.BUILD_BRANCH }}" \
             --workflow="build-push.yml")
-          echo "FRONTEND_IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_OUTPUT
+          echo "image_tag=$IMAGE_TAG" >> $GITHUB_OUTPUT
+      - uses: cloudposse/github-action-secret-outputs@main
+        id: image_encode
+        with:
+          ## PASSWORD is a gpg passphrase stored in Github Secrets.
+          secret: ${{ secrets.DATABASE_MASTER_PASSWORD }}
+          op: encode
+          in: ${{ steps.build.outputs.image_tag }}
     outputs:
-      FRONTEND_IMAGE_TAG: ${{steps.build.outputs.FRONTEND_IMAGE_TAG}}
+      image_tag: ${{steps.image_encode.outputs.out}}
   deploy_prod:
     environment: ${{ inputs.stack }}
     runs-on: ubuntu-latest
     needs: [build_frontend]
     steps:
+      - uses: cloudposse/github-action-secret-outputs@main
+        id: image_decode
+        with:
+          secret: ${{ secrets.DATABASE_MASTER_PASSWORD }}
+          op: decode
+          in: ${{ needs.build_frontend.outputs.image_tag }}
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4.1.0
         with:
@@ -90,7 +103,7 @@ jobs:
         with:
           task-definition: ./difatto-prod-payload.json
           container-name: ${{ vars.ECS_PAYLOAD_CONTAINER }}
-          image: ${{ needs.build_frontend.outputs.FRONTEND_IMAGE_TAG }}
+          image: ${{ steps.image_decode.outputs.out }}
       # frontend -> signal the service for a new deploy
       - name: Production Deploy Frontend API ECS Service
         uses: aws-actions/amazon-ecs-deploy-task-definition@v2.3.2

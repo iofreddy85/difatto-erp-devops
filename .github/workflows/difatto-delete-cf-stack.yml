@@ -45,14 +45,14 @@ jobs:
 
           STACK_NAME=${{ inputs.environment }}
 
-          # img_length=$(aws ecr list-images --repository-name $ECR_IMAGES_REPOSITORY | jq  '.imageIds | length')
-          # if [[ $img_length -ne 0 ]]; then
-          #   echo "Images to delete: $img_length..."
-          #   imgs_array=($(aws ecr list-images --repository-name $ECR_IMAGES_REPOSITORY | jq  '.imageIds | map("imageTag="+.imageTag) | join(" ")' -r))
-          #   aws ecr batch-delete-image --repository-name $ECR_IMAGES_REPOSITORY --image-ids "${imgs_array[@]}"
-          # else
-          #   echo "No images to delete..."
-          # fi
+          img_length=$(aws ecr list-images --repository-name $ECR_IMAGES_REPOSITORY | jq  '.imageIds | length')
+          if [[ $img_length -ne 0 ]]; then
+            echo "Images to delete: $img_length..."
+            imgs_array=($(aws ecr list-images --repository-name $ECR_IMAGES_REPOSITORY | jq  '.imageIds | map("imageTag="+.imageTag) | join(" ")' -r))
+            aws ecr batch-delete-image --repository-name $ECR_IMAGES_REPOSITORY --image-ids "${imgs_array[@]}"
+          else
+            echo "No images to delete..."
+          fi
 
           # remove sg from rds
           remove_sgs_rds_instance \
