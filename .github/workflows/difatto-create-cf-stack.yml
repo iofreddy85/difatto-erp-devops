@@ -1,7 +1,11 @@
 name: Difatto Cloudformation CREATE
 on:
   workflow_dispatch:
-    # inputs:
+    inputs:
+      load_balancer:
+        description: Create Load Balancer?
+        required: true
+        type: boolean
     #   qa_domain_name:
     #     description: "QA Subdomain"
     #     required: false
@@ -91,6 +95,9 @@ jobs:
           DB_INSTANCE_NAME="difatto-rds-$env_id"
           github_post_env_var $DEV_OPS_REPO_ID $STACK_NAME "DB_INSTANCE_NAME" $DB_INSTANCE_NAME
 
+          NEXTJS_PORT="${{ inputs.load_balancer && '3000' || '80' }}"
+          github_post_env_var $DEV_OPS_REPO_ID $STACK_NAME "NEXTJS_PORT" $NEXTJS_PORT
+
           # define GIT_AWS_USER
           GIT_AWS_USER="$GIT_AWS_USER-$env_id"
 
@@ -143,6 +150,8 @@ jobs:
             --stack-name "$SERVICES_STACK_NAME" \
             --capabilities CAPABILITY_NAMED_IAM \
             --parameter-overrides \
+              PayloadPort="$NEXTJS_PORT" \
+              HasLoadBalancer="${{ inputs.load_balancer }}" \
               ParentVPCStack="$VPC_STACK_NAME" \
               EnvironmentName=$env_id \
               GithubUser=$GIT_AWS_USER \

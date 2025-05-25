@@ -29,6 +29,22 @@ Parameters:
     Type: String
     Default: "difatto-payload-container"
 
+  PayloadPort:
+    Type: String
+    Default: "3000"
+
+  HasLoadBalancer:
+    Type: String
+    Default: "true"
+    AllowedValues:
+      - "true"
+      - "false"
+
+Conditions:
+  CreateLoadBalancer: !Equals
+    - !Ref HasLoadBalancer
+    - "true"
+
 Resources:
   StackUser:
     Type: "AWS::IAM::User"
@@ -122,26 +138,27 @@ Resources:
                   - "logs:PutLogEvents"
                 Resource: "*"
 
-  ECSLBPayloadSG:
+  ECSLoadBalancerSG:
     Type: "AWS::EC2::SecurityGroup"
+    Condition: CreateLoadBalancer
     Properties:
-      GroupDescription: Handles Public access to Load Balancer from the Internet
+      GroupDescription: Handles Public access to LB from the Internet
       GroupName: !Sub "difatto-sg-ecs-lb-${EnvironmentName}"
       VpcId: { "Fn::ImportValue": !Sub "${ParentVPCStack}-VPC" }
       SecurityGroupIngress:
-        - Description: Allows HTTPS traffic from the internet to the Frontend Load Balancer
+        - Description: Allows HTTPS traffic from the internet to LB Payload
           IpProtocol: tcp
           FromPort: 443
           ToPort: 443
           CidrIp: 0.0.0.0/0
-        - Description: Allows HTTP traffic from the internet to the Frontend Load Balancer
+        - Description: Allows HTTP traffic from the internet to LB Payload
           IpProtocol: tcp
           FromPort: 80
           ToPort: 80
           CidrIp: 0.0.0.0/0
       Tags:
         - Key: Name
-          Value: !Sub "[loadbalancer <- *] - difatto-${EnvironmentName}-sg"
+          Value: !Sub "[load balancer <- *] - difatto-${EnvironmentName}-sg"
 
   ECSPayloadServiceSG:
     Type: "AWS::EC2::SecurityGroup"
@@ -150,14 +167,34 @@ Resources:
       GroupName: !Sub "difatto-sg-ecs-payload-${EnvironmentName}"
       VpcId: { "Fn::ImportValue": !Sub "${ParentVPCStack}-VPC" }
       SecurityGroupIngress:
-        - Description: Allows traffic in from load balancer through security group
-          IpProtocol: tcp
-          FromPort: 3000
-          ToPort: 3000
-          SourceSecurityGroupId: !Ref ECSLBPayloadSG
+        - !If
+          - CreateLoadBalancer
+          - Description: Allows traffic in from load balancer through security group
+            IpProtocol: tcp
+            FromPort: !Ref PayloadPort
+            ToPort: !Ref PayloadPort
+            SourceSecurityGroupId: !Ref ECSLoadBalancerSG
+          - Description: Allows HTTPS traffic from the internet to ECS
+            IpProtocol: tcp
+            FromPort: 443
+            ToPort: 443
+            CidrIp: 0.0.0.0/0
+        - !If
+          - CreateLoadBalancer
+          - !Ref "AWS::NoValue"
+          - Description: Allows HTTP traffic from the internet to ECS
+            IpProtocol: tcp
+            FromPort: 80
+            ToPort: 80
+            CidrIp: 0.0.0.0/0
       Tags:
         - Key: Name
-          Value: !Sub "[payload-service <- loadbalancer] - difatto-${EnvironmentName}-sg"
+          Value:
+            !If [
+              CreateLoadBalancer,
+              !Sub "[payload-service <- load-balancer] - difatto-${EnvironmentName}-sg",
+              !Sub "[payload-service <- internet] - difatto-${EnvironmentName}-sg",
+            ]
 
   PayloadECSRDSSG:
     Type: "AWS::EC2::SecurityGroup"
@@ -177,11 +214,12 @@ Resources:
 
   PayloadLB:
     Type: "AWS::ElasticLoadBalancingV2::LoadBalancer"
+    Condition: CreateLoadBalancer
     Properties:
       Name: !Sub "difatto-ecs-lb-${EnvironmentName}"
       Type: application
       SecurityGroups:
-        - !Ref ECSLBPayloadSG
+        - !Ref ECSLoadBalancerSG
       Subnets:
         !Split [
           ",",
@@ -190,12 +228,13 @@ Resources:
 
   PayloadLBTargetGroup:
     Type: "AWS::ElasticLoadBalancingV2::TargetGroup"
+    Condition: CreateLoadBalancer
     Properties:
       VpcId: { "Fn::ImportValue": !Sub "${ParentVPCStack}-VPC" }
       TargetType: ip
       Name: !Sub "difatto-lb-tg-${EnvironmentName}"
       HealthCheckPath: /health
-      HealthCheckPort: 3000
+      HealthCheckPort: !Ref PayloadPort
       HealthCheckIntervalSeconds: 10
       HealthCheckTimeoutSeconds: 5
       HealthyThresholdCount: 3
@@ -205,6 +244,7 @@ Resources:
 
   PayloadLBListener:
     Type: "AWS::ElasticLoadBalancingV2::Listener"
+    Condition: CreateLoadBalancer
     Properties:
       LoadBalancerArn: !GetAtt PayloadLB.LoadBalancerArn
       Port: 80
@@ -239,15 +279,15 @@ Resources:
             - Name: PS1
               Value: '[\u@difatto-payload \W] $ '
           PortMappings:
-            - ContainerPort: 3000
+            - ContainerPort: !Ref PayloadPort
               Protocol: tcp
-              Name: !Sub "${EnvEcsPayloadContainer}-3000-tcp"
+              Name: !Sub "${EnvEcsPayloadContainer}-${PayloadPort}-tcp"
           HealthCheck:
             Command:
               - CMD-SHELL
               - !Sub >-
                 curl -f
-                http://localhost:3000/health
+                http://localhost:${PayloadPort}/health
                 || exit 1
             Interval: 15
             Retries: 3
@@ -287,13 +327,22 @@ Resources:
               { "Fn::ImportValue": !Sub "${ParentVPCStack}-PublicSubnets" },
             ]
       LoadBalancers:
-        - TargetGroupArn:
-            Ref: PayloadLBTargetGroup
-          ContainerPort: 3000
-          ContainerName: !Ref EnvEcsPayloadContainer
+        - !If
+          - CreateLoadBalancer
+          - TargetGroupArn:
+              Ref: PayloadLBTargetGroup
+            ContainerPort: !Ref PayloadPort
+            ContainerName: !Ref EnvEcsPayloadContainer
+          - !Ref "AWS::NoValue"
+
       HealthCheckGracePeriodSeconds: 30
     DependsOn:
-      - PayloadLBListener
+      - LBListenerReady
+
+  LBListenerReady:
+    Type: "AWS::CloudFormation::WaitConditionHandle"
+    Metadata:
+      LBListenerReady: !If [CreateLoadBalancer, !Ref PayloadLBListener, ""]
 
   PayloadCloudWatchGroup:
     Type: "AWS::Logs::LogGroup"
@@ -305,6 +354,7 @@ Outputs:
   LoadBalancerDNSName:
     Description: The DNSName of the payload load balancer
     Value: !GetAtt PayloadLB.DNSName
+    Condition: CreateLoadBalancer
   ECSRDSSecurityGroup:
     Description: Security Group for Adding to the RDS Database
     Value: !GetAtt PayloadECSRDSSG.GroupId
