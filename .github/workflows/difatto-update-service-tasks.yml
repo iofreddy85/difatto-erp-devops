@@ -1,0 +1,37 @@
+name: Difatto Toggle Service
+on:
+  workflow_dispatch:
+    inputs:
+      stack:
+        description: Stack
+        required: true
+        type: environment
+      tasks_action:
+        type: choice
+        description: Desired Service Status
+        options:
+          - on
+          - off
+env:
+  REPO_ORG: "iofreddy85"
+  REPO: "difatto-erp-devops"
+  AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+  AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+  AWS_DEFAULT_REGION: ${{ vars.AWS_REGION }}
+jobs:
+  toggle_service:
+    environment: ${{ inputs.stack }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4.1.0
+        with:
+          aws-access-key-id: ${{ env.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ env.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_DEFAULT_REGION }}
+      - name: Production ECS Frontend API Service set tasks to desired status
+        run: |
+          aws ecs update-service \
+            --cluster ${{ vars.ECS_CLUSTER }} \
+            --service ${{ vars.ECS_PAYLOAD_SERVICE }} \
+            --desired-count ${{ inputs.tasks_action == 'true' && '1' || '0' }}
