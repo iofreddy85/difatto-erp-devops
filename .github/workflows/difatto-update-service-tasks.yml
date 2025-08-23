@@ -1,5 +1,8 @@
 name: Difatto Toggle Service
 on:
+  schedule:
+    - cron: "0 11 * * *" # run at 08:00 UTC-3
+    - cron: "59 2 * * *" # run at 23:59 UTC-3
   workflow_dispatch:
     inputs:
       stack:
@@ -18,11 +21,25 @@ env:
   AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
   AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
   AWS_DEFAULT_REGION: ${{ vars.AWS_REGION }}
+  CLOUDFLARE_TOKEN: ${{ secrets.CLOUDFLARE_TOKEN }}
 jobs:
   toggle_service:
     environment: ${{ inputs.stack }}
     runs-on: ubuntu-latest
     steps:
+      - name: Set parameters
+        id: params
+        run: |
+          if [[ "${{ github.event.schedule }}" == "0 11 * * *" ]]; then
+            echo "CRON ON"
+            echo "tasks_action=true" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.event.schedule }}" == "59 2 * * *" ]]; then
+            echo "CRON OFF"
+            echo "tasks_action=false" >> $GITHUB_OUTPUT
+          else
+            echo "MANUAL RUN: ${{ inputs.tasks_action }}"
+            echo "tasks_action=${{ inputs.tasks_action }}" >> $GITHUB_OUTPUT
+          fi
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4.1.0
         with:
@@ -31,7 +48,30 @@ jobs:
           aws-region: ${{ env.AWS_DEFAULT_REGION }}
       - name: Production ECS Frontend API Service set tasks to desired status
         run: |
+          echo ">tasks_action=${{ steps.params.outputs.tasks_action }}"
           aws ecs update-service \
             --cluster ${{ vars.ECS_CLUSTER }} \
             --service ${{ vars.ECS_PAYLOAD_SERVICE }} \
-            --desired-count ${{ inputs.tasks_action == 'true' && '1' || '0' }}
+            --desired-count ${{ steps.params.outputs.tasks_action == 'true' && '1' || '0' }}
+    outputs:
+      tasks_action: ${{ steps.params.outputs.tasks_action }}
+  dns_change:
+    environment: ${{ inputs.stack }}
+    runs-on: ubuntu-latest
+    needs: toggle_service
+    if: ${{ needs.toggle_service.outputs.tasks_action == 'true' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4.1.6
+      - name: install-aws-cli-action
+        uses: unfor19/install-aws-cli-action@v1
+      - name: Dns Update
+        working-directory: "./scripts"
+        env:
+          DNS_ZONE: ${{ vars.CLOUDFLARE_DNS_ZONE }}
+          ECS_CLUSTER: ${{ vars.ECS_CLUSTER }}
+          ECS_SERVICE: ${{ vars.ECS_PAYLOAD_SERVICE }}
+          RECORD_ID: ${{ vars.CLOUDFLATE_DNS_RECORD_ID }}
+          DNS_NAME: ${{ vars.CLOUDFLARE_DNS_NAME }}
+        run: |
+          ./dns_change.sh
