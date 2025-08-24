@@ -24,7 +24,7 @@ env:
   CLOUDFLARE_TOKEN: ${{ secrets.CLOUDFLARE_TOKEN }}
 jobs:
   toggle_service:
-    environment: ${{ inputs.stack }}
+    environment: ${{ inputs.stack || vars.CRON_UPDATE_DEFAULT_ENV }}
     runs-on: ubuntu-latest
     steps:
       - name: Set parameters
@@ -56,7 +56,7 @@ jobs:
     outputs:
       tasks_action: ${{ steps.params.outputs.tasks_action }}
   dns_change:
-    environment: ${{ inputs.stack }}
+    environment: ${{ inputs.stack || vars.CRON_UPDATE_DEFAULT_ENV }}
     runs-on: ubuntu-latest
     needs: toggle_service
     if: ${{ needs.toggle_service.outputs.tasks_action == 'true' }}
