@@ -1,8 +1,8 @@
 name: Difatto Toggle Service
 on:
   schedule:
-    - cron: "0 11 * * *" # run at 08:00 UTC-3
-    - cron: "59 2 * * *" # run at 23:59 UTC-3
+    - cron: "0 13 * * *" # run at 10:00 UTC-3 [if changimg this, change job condition below]
+    - cron: "0 1 * * *" # run at 22:00 UTC-3
   workflow_dispatch:
     inputs:
       stack:
@@ -31,10 +31,10 @@ jobs:
       - name: Set parameters
         id: params
         run: |
-          if [[ "${{ github.event.schedule }}" == "0 11 * * *" ]]; then
+          if [[ "${{ github.event.schedule }}" == "0 13 * * *" ]]; then
             echo "CRON ON"
             echo "tasks_action=true" >> $GITHUB_OUTPUT
-          elif [[ "${{ github.event.schedule }}" == "59 2 * * *" ]]; then
+          elif [[ "${{ github.event.schedule }}" == "0 1 * * *" ]]; then
             echo "CRON OFF"
             echo "tasks_action=false" >> $GITHUB_OUTPUT
           else
